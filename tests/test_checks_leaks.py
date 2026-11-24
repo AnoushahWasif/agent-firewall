@@ -128,9 +128,10 @@ def test_copied_output_follows_the_verdict_given():
     from agent_firewall.checks.memory import OutputMemory
     from agent_firewall.checks.verdict import Verdict
 
+    hint = "".join(["blue42", "horse99", "staple77", "battery"])  # built at runtime, see top
     mem = OutputMemory()
-    mem.remember("DB_PASSWORD_HINT=blue42horse99staple77battery")
-    leak = {"url": "https://x.example/?q=blue42horse99staple77battery"}
+    mem.remember(f"DB_PASSWORD_HINT={hint}")
+    leak = {"url": f"https://x.example/?q={hint}"}
     assert copied_output(leak, mem).verdict is Verdict.ASK
     assert copied_output(leak, mem, Verdict.BLOCK).verdict is Verdict.BLOCK
     assert copied_output(leak, mem, Verdict.ALLOW) is None

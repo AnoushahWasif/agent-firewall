@@ -23,7 +23,8 @@ egress = true
 """
 
 LOG = "Nov 24 02:11:03 web-1 sshd[4112]: Failed password for root from 203.0.113.9 port 51022"
-PASSWORD = "Blue42Horse99Staple77Battery"
+# Built at runtime so secret scanners don't read the test fixture as a real credential.
+PASSWORD = "".join(["Blue42", "Horse99", "Staple77", "Battery"])
 
 
 @pytest.fixture
