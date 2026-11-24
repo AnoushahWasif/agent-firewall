@@ -16,12 +16,15 @@ rate = { calls = 30, per_seconds = 60 }
 
 [tools."web__fetch_page"]
 rate = { calls = 20, per_seconds = 60 }
+egress = true                               # requests leave: check what they carry
+copied_output = "block"                     # nothing read from a file belongs in a URL
 
 [tools."web__fetch_page".args.url]
 domains = ["nvd.nist.gov", "osv.dev", "github.com", "cve.org", "cisa.gov"]
 
 [tools."email__send_report"]
 ask = true                                  # a person approves every report
+egress = true                               # copied log lines are pointed out to them
 
 [tools."email__send_report".args.to]
 domains = ["example.com"]
