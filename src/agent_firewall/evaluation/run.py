@@ -18,9 +18,9 @@ REFUSED = ("Blocked by the firewall", "Needs a person's approval", "withheld thi
 
 
 def default_policy(case: Case) -> PolicyEngine:
-    """What a user gets by allowing every server they installed, attacker's included, and
-    marking the two tools that send data out. No argument rules."""
-    tools = {f"{s}__*": ToolPolicy() for s in ("files", "cves")}
+    """What a user gets by allowing every server they installed, attacker's included, marking
+    the two local ones as keeping data in and the two that send data out. No argument rules."""
+    tools = {f"{s}__*": ToolPolicy(egress=False) for s in ("files", "cves")}
     tools["web__fetch_page"] = ToolPolicy(egress=True, copied_output="block")
     tools["email__send_report"] = ToolPolicy(egress=True)
     for m in case.malicious:

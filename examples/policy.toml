@@ -1,17 +1,24 @@
 # What the demo agent may do. Anything not named here is hidden from it and refused.
+# Tools count as sending data out unless marked `egress = false` (local servers only).
 
 [tools."files__list_files"]
+egress = false
 
 [tools."files__read_file"]
+egress = false
 rate = { calls = 60, per_seconds = 60 }
 
 [tools."files__read_file".args.path]
 pattern = "logs/[A-Za-z0-9._-]+"            # logs only: no notes, no configs, no dot-files
 
+[tools."files__search_file"]
+egress = false
+
 [tools."files__search_file".args.path]
 pattern = "logs/[A-Za-z0-9._-]+"
 
 [tools."cves__*"]
+egress = false
 rate = { calls = 30, per_seconds = 60 }
 
 [tools."web__fetch_page"]

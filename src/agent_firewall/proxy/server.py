@@ -97,9 +97,9 @@ def _labelled_structure(output_schema: dict[str, Any] | None, fenced: str) -> An
 def leak_checks(
     rule: ToolPolicy | None, arguments: dict[str, Any], memory: OutputMemory
 ) -> list[Decision | None]:
-    """LK01 on every call; LK02 and LK03 only on tools the policy marks as sending data out."""
+    """LK01 on every call; LK02 and LK03 on tools that can send data out (by default, all)."""
     found = [secret_in_arguments(arguments)]
-    if rule is not None and rule.egress:
+    if rule is not None and rule.sends_data_out:
         on_copy = {"ask": Verdict.ASK, "block": Verdict.BLOCK, "allow": Verdict.ALLOW}
         found += [
             personal_data(arguments),
