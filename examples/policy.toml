@@ -1,0 +1,28 @@
+# What the demo agent may do. Anything not named here is hidden from it and refused.
+
+[tools."files__list_files"]
+
+[tools."files__read_file"]
+rate = { calls = 60, per_seconds = 60 }
+
+[tools."files__read_file".args.path]
+pattern = "logs/[A-Za-z0-9._-]+"            # logs only: no notes, no configs, no dot-files
+
+[tools."files__search_file".args.path]
+pattern = "logs/[A-Za-z0-9._-]+"
+
+[tools."cves__*"]
+rate = { calls = 30, per_seconds = 60 }
+
+[tools."web__fetch_page"]
+rate = { calls = 20, per_seconds = 60 }
+
+[tools."web__fetch_page".args.url]
+domains = ["nvd.nist.gov", "osv.dev", "github.com", "cve.org", "cisa.gov"]
+
+[tools."email__send_report"]
+ask = true                                  # a person approves every report
+
+[tools."email__send_report".args.to]
+domains = ["example.com"]
+max_length = 3
