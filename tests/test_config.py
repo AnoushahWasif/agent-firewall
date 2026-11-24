@@ -81,3 +81,21 @@ def test_pins_live_next_to_the_config(tmp_path):
     setup = load(write(tmp_path, 'pins = "state/pins.json"\n[servers.files]\ncommand = "x"'))
     assert setup.gate.pins.path == tmp_path.resolve() / "state" / "pins.json"
     assert load(write(tmp_path, '[servers.files]\ncommand = "x"')).gate.pins.path is None
+
+
+def test_an_injection_model_loads_only_with_the_right_pin(tmp_path):
+    from test_checks_injection_model import export, fit
+
+    pin = export(fit(), tmp_path / "model")
+    section = f'[injection_model]\npath = "model"\nmanifest_sha256 = "{pin}"\n'
+    setup = load(write(tmp_path, section + '[servers.files]\ncommand = "x"'))
+    assert setup.model is not None and 0 < setup.model.threshold <= 1
+    wrong = section.replace(pin, "0" * 64)
+    with pytest.raises(ConfigError, match="injection model"):
+        load(write(tmp_path, wrong + '[servers.files]\ncommand = "x"'))
+    with pytest.raises(ConfigError):
+        load(write(tmp_path, section.replace(pin, "short") + '[servers.files]\ncommand = "x"'))
+
+
+def test_no_model_configured_means_rules_only(tmp_path):
+    assert load(write(tmp_path, '[servers.files]\ncommand = "x"')).model is None
