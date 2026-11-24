@@ -1,6 +1,13 @@
 import pytest
 
-from agent_firewall.policy import Policy, PolicyError, bad_arguments, load, not_allowed
+from agent_firewall.policy import (
+    Policy,
+    PolicyError,
+    bad_arguments,
+    broken_argument_rule,
+    load,
+    not_allowed,
+)
 
 
 def policy_from(tmp_path, text):
@@ -89,3 +96,79 @@ def test_huge_arguments_are_blocked_before_validation():
 def test_a_broken_schema_blocks_rather_than_passes():
     decision = bad_arguments({"path": "a"}, {"type": "not-a-type"})
     assert decision.rule == "POL02"
+
+
+def tool_policy(tmp_path, args_toml):
+    return policy_from(tmp_path, '[tools."t__x"]\n' + args_toml).tools["t__x"]
+
+
+def test_pattern_must_match_the_whole_value(tmp_path):
+    rule = tool_policy(tmp_path, '[tools."t__x".args.path]\npattern = "logs/[a-z0-9._-]+"\n')
+    assert broken_argument_rule(rule, {"path": "logs/auth.log"}) is None
+    for bad in ["logs/../secret", "x/logs/a.log", "logs/a.log\n", 5]:
+        assert broken_argument_rule(rule, {"path": bad}).rule == "POL03"
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [
+        ("https://nvd.nist.gov/vuln/detail/CVE-2019-10906", True),
+        ("https://www.nvd.nist.gov/x", True),
+        ("https://NVD.NIST.GOV./x", True),
+        ("https://nvd.nist.gov.evil.example/x", False),
+        ("https://evilnvd.nist.gov.example/x", False),
+        ("https://evil.example/?u=https://nvd.nist.gov", False),
+        ("https://nvd.nist.gov@evil.example/", False),
+        ("soc@example.com", True),
+        ("soc@sub.example.com", True),
+        ("soc@example.com.evil.example", False),
+        ("soc@notexample.com", False),
+        ("not a url or address", False),
+    ],
+)
+def test_domains_for_urls_and_email_addresses(tmp_path, value, ok):
+    rule = tool_policy(
+        tmp_path, '[tools."t__x".args.target]\ndomains = ["nvd.nist.gov", "example.com"]\n'
+    )
+    assert (broken_argument_rule(rule, {"target": value}) is None) is ok
+
+
+def test_lists_are_checked_item_by_item(tmp_path):
+    rule = tool_policy(
+        tmp_path, '[tools."t__x".args.to]\ndomains = ["example.com"]\nmax_length = 3\n'
+    )
+    assert broken_argument_rule(rule, {"to": ["a@example.com", "b@example.com"]}) is None
+    smuggled = broken_argument_rule(rule, {"to": ["a@example.com", "attacker@evil.example"]})
+    assert smuggled.rule == "POL03" and "evil" not in smuggled.reason
+    assert "too many" in broken_argument_rule(rule, {"to": ["a@example.com"] * 4}).reason
+
+
+def test_length_and_choices(tmp_path):
+    rule = tool_policy(
+        tmp_path,
+        '[tools."t__x".args.body]\nmax_length = 10\n'
+        '[tools."t__x".args.mode]\none_of = ["fast", "safe"]\n',
+    )
+    assert broken_argument_rule(rule, {"body": "short", "mode": "safe"}) is None
+    assert "too long" in broken_argument_rule(rule, {"body": "x" * 11}).reason
+    assert "allowed values" in broken_argument_rule(rule, {"mode": "unsafe"}).reason
+
+
+def test_a_missing_argument_is_left_to_the_schema(tmp_path):
+    rule = tool_policy(tmp_path, '[tools."t__x".args.path]\npattern = "logs/.*"\n')
+    assert broken_argument_rule(rule, {}) is None
+
+
+@pytest.mark.parametrize(
+    ("args_toml", "message"),
+    [
+        ('[tools."t__x".args.p]\npattern = "("\n', "doesn't compile"),
+        ('[tools."t__x".args.p]\ndomains = ["Example.com"]\n', "lower-case domain"),
+        ('[tools."t__x".args.p]\ndomains = ["*.example.com"]\n', "lower-case domain"),
+        ('[tools."t__x".args.p]\nmax_length = 0\n', "greater than or equal"),
+        ('[tools."t__x".args.p]\nregex = "x"\n', "Extra inputs"),
+    ],
+)
+def test_bad_argument_rules_are_refused_at_load(tmp_path, args_toml, message):
+    with pytest.raises(PolicyError, match=message):
+        tool_policy(tmp_path, args_toml)
