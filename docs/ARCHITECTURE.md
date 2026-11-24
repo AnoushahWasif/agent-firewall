@@ -144,3 +144,27 @@ Agents are random, so each case runs several times, with intervals.
 **Honesty rules:**
 - The attack set is split. Rules are written against half of it, and the other half is scored once at the end, like a test set.
 - Attacks we don't stop are kept and reported. They aren't quietly removed.
+
+## The guard LLM (fine-tuned)
+
+| Item | Choice |
+|---|---|
+| Base model | A small open instruct model, about 0.5 to 1.5B parameters, under Apache-2.0 or MIT (for example Qwen's small models). The exact model, revision and licence are pinned on its day |
+| Task | Input: a tool's description, a tool call, or a tool result, with its context. Output: `safe` / `attack`, the attack type, and a one-line reason, as fixed JSON |
+| Training data | The development half of our attack and normal sets, prompt-injection-guard's training data (licences already checked there), and generated variations of our own cases. The held-out attack half is never used for training |
+| Method | LoRA adapters with Hugging Face PEFT, trained on a free Colab GPU. Every setting, the data hash and the base model revision are saved with the adapter |
+| Running it | Adapters merged and saved as safetensors (never pickle), hash-pinned like prompt-injection-guard's model, running on the laptop CPU |
+| Compared against | The rules alone, the prompt-injection-guard TF-IDF model, the base model with no fine-tuning (prompt only), and the fine-tuned model, all on the same held-out half: attacks caught, false alarms, latency |
+| Honest outcome | If fine-tuning doesn't beat the cheaper checks, the README says so, and the firewall uses what works best |
+
+## The tiny GPT (from scratch, learning notebook)
+
+- **What gets built:** a decoder-only transformer written in PyTorch, step by step:
+  - a tokenizer (byte-pair encoding, trained ourselves);
+  - embeddings and self-attention with a causal mask;
+  - the training loop.
+- **Size and data:**
+  - **Model:** about 5 to 10 million parameters, trained on a laptop CPU, or a free Colab GPU if that's too slow.
+  - **Corpus:** public security text (CVE descriptions, and MITRE ATT&CK technique descriptions under its terms, with attribution).
+- **What it shows:** loss curves, text samples at several points in training, and what attention looks at. It also shows clearly why this tiny model can't do the guard's job, and why fine-tuning a pretrained model is the right tool for that.
+- **Where it lives:** its own folder (`notebooks/gpt-from-scratch/`) with its own tests (shapes, causal masking, and a loss that falls on a tiny batch). It's separate from the firewall code.
