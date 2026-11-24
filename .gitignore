@@ -15,7 +15,7 @@ dist/
 data/
 /models/
 /runs/
-/outbox/
+outbox/
 audit*.jsonl
 
 # Local env
