@@ -19,18 +19,23 @@ takes precedence over a `server__*` entry.
 
 Rules (ids appear in the audit log):
   POL01 not allowed: the policy doesn't name the tool
+  POL02 bad arguments: they don't fit the tool's own input schema, or they're too large
 """
 
+import json
 import re
 import tomllib
 from pathlib import Path
+from typing import Any
 
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from agent_firewall.checks.verdict import Decision, Verdict
 from agent_firewall.proxy.naming import SEP, split_name
 
 MAX_TOOLS = 500
+MAX_ARGUMENT_BYTES = 64_000
 GLOB = re.compile(r"^[a-z][a-z0-9-]{0,30}__\*$")
 
 
@@ -71,6 +76,27 @@ class Policy(BaseModel):
 def not_allowed(policy: Policy, name: str) -> Decision | None:
     if not policy.allows(name):
         return Decision(Verdict.BLOCK, "POL01", "the policy doesn't allow this tool")
+    return None
+
+
+def bad_arguments(arguments: dict[str, Any], input_schema: dict[str, Any]) -> Decision | None:
+    """Arguments checked against the schema the tool itself published (and the firewall pinned).
+    Servers are supposed to validate their own input; this doesn't rely on it."""
+    if len(json.dumps(arguments, ensure_ascii=False)) > MAX_ARGUMENT_BYTES:
+        return Decision(Verdict.BLOCK, "POL02", "the arguments are too large")
+    try:
+        Draft202012Validator.check_schema(input_schema)
+        error = next(Draft202012Validator(input_schema).iter_errors(arguments), None)
+    except Exception:  # a schema we can't use must block, never pass (decision 14)
+        return Decision(
+            Verdict.BLOCK, "POL02", "the tool's schema can't be used to check arguments"
+        )
+    if error is not None:
+        # The reason names the failing field, never the value that failed.
+        field = ".".join(str(p) for p in error.absolute_path) or "(top level)"
+        return Decision(
+            Verdict.BLOCK, "POL02", f"argument {field[:80]} doesn't fit the tool's schema"
+        )
     return None
 
 

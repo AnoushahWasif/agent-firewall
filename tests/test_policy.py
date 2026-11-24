@@ -1,6 +1,6 @@
 import pytest
 
-from agent_firewall.policy import Policy, PolicyError, load, not_allowed
+from agent_firewall.policy import Policy, PolicyError, bad_arguments, load, not_allowed
 
 
 def policy_from(tmp_path, text):
@@ -52,3 +52,40 @@ def test_bad_policies_say_where(tmp_path, text, message):
 def test_a_missing_policy_file(tmp_path):
     with pytest.raises(PolicyError, match="can't read"):
         load(tmp_path / "nope.toml")
+
+
+READ_SCHEMA = {
+    "type": "object",
+    "properties": {"path": {"type": "string"}, "max_bytes": {"type": "integer", "minimum": 1}},
+    "required": ["path"],
+    "additionalProperties": False,
+}
+
+
+def test_arguments_that_fit_the_schema_pass():
+    assert bad_arguments({"path": "logs/a.log"}, READ_SCHEMA) is None
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"path": 7},
+        {"path": "a", "max_bytes": 0},
+        {"path": "a", "exfil": "~/.ssh/id_rsa"},
+    ],
+)
+def test_arguments_that_do_not_fit_are_blocked(arguments):
+    decision = bad_arguments(arguments, READ_SCHEMA)
+    assert decision.rule == "POL02"
+    assert "id_rsa" not in decision.reason  # the reason never repeats the value
+
+
+def test_huge_arguments_are_blocked_before_validation():
+    decision = bad_arguments({"path": "x" * 70_000}, {"type": "object"})
+    assert decision.rule == "POL02" and "too large" in decision.reason
+
+
+def test_a_broken_schema_blocks_rather_than_passes():
+    decision = bad_arguments({"path": "a"}, {"type": "not-a-type"})
+    assert decision.rule == "POL02"
