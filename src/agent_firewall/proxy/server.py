@@ -10,6 +10,7 @@ What it refuses, by construction:
   the agent's model or user.
 """
 
+import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -20,7 +21,9 @@ from mcp import Client, StdioServerParameters
 from mcp.server import MCPServer
 from mcp.server.lowlevel import Server
 
-from agent_firewall.checks.verdict import Verdict
+from agent_firewall.checks.leaks import copied_output, personal_data, secret_in_arguments
+from agent_firewall.checks.memory import OutputMemory
+from agent_firewall.checks.verdict import Decision, Verdict, combine
 from agent_firewall.policy import Policy, PolicyEngine, ToolPolicy
 from agent_firewall.proxy.gate import Listing, ToolGate, shown
 from agent_firewall.proxy.naming import SEP, check_server_name, public_name, split_name
@@ -61,6 +64,27 @@ async def _all_tools(client: Client) -> list[types.Tool]:
     return tools[:MAX_TOOLS_PER_SERVER]
 
 
+def _result_text(result: types.CallToolResult) -> str:
+    parts = [getattr(block, "text", "") or "" for block in result.content]
+    if result.structured_content is not None:
+        parts.append(json.dumps(result.structured_content, ensure_ascii=False, default=str))
+    return "\n".join(parts)
+
+
+def leak_checks(
+    rule: ToolPolicy | None, arguments: dict[str, Any], memory: OutputMemory
+) -> list[Decision | None]:
+    """LK01 on every call; LK02 and LK03 only on tools the policy marks as sending data out."""
+    found = [secret_in_arguments(arguments)]
+    if rule is not None and rule.egress:
+        on_copy = {"ask": Verdict.ASK, "block": Verdict.BLOCK, "allow": Verdict.ALLOW}
+        found += [
+            personal_data(arguments),
+            copied_output(arguments, memory, on_copy[rule.copied_output]),
+        ]
+    return found
+
+
 def allow_every_server(upstreams: Sequence[Upstream]) -> PolicyEngine:
     """A policy naming every server's tools, for tests and library use. The config file never
     falls back to this: it must name a policy file."""
@@ -91,7 +115,7 @@ def build_firewall(
                     raise UpstreamUnavailable(
                         f"tool server {upstream.name!r} didn't start"
                     ) from exc
-            yield {"clients": clients}
+            yield {"clients": clients, "memory": OutputMemory()}
 
     async def live_listing(clients: dict[str, Client]) -> Listing:
         listing: Listing = []
@@ -130,17 +154,29 @@ def build_firewall(
         if not shown(decision):
             return _error(f"Blocked by the firewall ({decision.rule}): {decision.reason}")
         live = next(t for srv, t in listing if srv == server and t.name == tool)
-        verdict = policy.review_call(params.name, params.arguments or {}, live.input_schema)
-        if verdict is not None and verdict.verdict is Verdict.ASK:
+        arguments = params.arguments or {}
+        memory: OutputMemory = ctx.lifespan_context["memory"]
+        verdict = combine(
+            d
+            for d in (
+                policy.review_call(params.name, arguments, live.input_schema),
+                *leak_checks(policy.policy.rule_for(params.name), arguments, memory),
+            )
+            if d is not None
+        )
+        if verdict.verdict is Verdict.ASK:
             # Approvals arrive on day 14; until a person can answer, "ask" means no.
             return _error(f"Needs a person's approval ({verdict.rule}): {verdict.reason}")
-        if verdict is not None and verdict.verdict is Verdict.BLOCK:
+        if verdict.verdict is Verdict.BLOCK:
             return _error(f"Blocked by the firewall ({verdict.rule}): {verdict.reason}")
         try:
-            return await clients[server].call_tool(tool, params.arguments or {})
+            result = await clients[server].call_tool(tool, arguments)
         except Exception:
             # The upstream's own error text could be anything; the agent gets a fixed message.
             return _error(f"Tool server {server!r} failed to answer")
+        if not result.is_error:
+            memory.remember(_result_text(result))
+        return result
 
     return Server(
         "agent-firewall",
