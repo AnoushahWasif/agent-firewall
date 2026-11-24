@@ -168,3 +168,24 @@ Agents are random, so each case runs several times, with intervals.
   - **Corpus:** public security text (CVE descriptions, and MITRE ATT&CK technique descriptions under its terms, with attribution).
 - **What it shows:** loss curves, text samples at several points in training, and what attention looks at. It also shows clearly why this tiny model can't do the guard's job, and why fine-tuning a pretrained model is the right tool for that.
 - **Where it lives:** its own folder (`notebooks/gpt-from-scratch/`) with its own tests (shapes, causal masking, and a loss that falls on a tiny batch). It's separate from the firewall code.
+
+## Decisions
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | The firewall is an MCP proxy, not a library inside the agent | It then protects any MCP agent (Claude Desktop, IDE agents), not only ours, and the agent can't skip it |
+| 2 | Deny by default: a tool the policy doesn't name can't be called | New tools are the attack surface |
+| 3 | Tool definitions are pinned by hash; a change blocks the tool until it's approved again | Rug pulls change a description after it was trusted |
+| 4 | Rules first, then the prompt-injection-guard model only on tool results | Rules are fast and explainable. The model is for free text, where rules miss rephrasings |
+| 5 | Untrusted tool output is fenced and labelled, not silently changed | The agent can still use the data, but knows it isn't instructions. Removing text would hide evidence |
+| 6 | The email tool writes to an outbox folder and never sends | No real harm is possible during attack tests |
+| 7 | Tests and CI use a scripted fake LLM; real-model runs are separate and opt-in | No API cost in CI, and tests are repeatable |
+| 8 | Python 3.12, the official MCP Python SDK, FastAPI for the approval and dashboard API, Next.js static dashboard | Same stack as the other projects; the official SDK, not our own MCP parser |
+| 9 | The audit log never stores raw arguments or results, only hashes, rule ids and short labels | Logs must not become the place secrets leak to |
+| 10 | The guard LLM sees only borderline cases, and rules decide the rest | A 1B model on CPU takes hundreds of milliseconds per call, so it's too slow to run on everything |
+| 11 | The guard model's output is parsed as strict JSON; anything else counts as "attack, needs a person" | A guard that can be talked into a malformed answer must fail closed |
+| 12 | Models are stored as safetensors with a pinned hash and loaded only after the hash checks out | Same rule as prompt-injection-guard: no pickles, and no unverified weights |
+| 13 | Only `tools/list` and `tools/call` are passed on. `resources`, `prompts`, and the requests servers can send back to the agent (`sampling`, `elicitation`, `roots`) are refused unless the policy allows them | Each one is a separate way for a malicious server to reach the model or the user, and v1 checks tools only |
+| 14 | Checks combine by "strictest wins" (block > ask > label > allow); a check that fails or times out blocks calls and labels results | A firewall that lets traffic through when it breaks is no firewall |
+| 15 | The audit log is append-only JSON lines, each carrying the SHA-256 of the line before | Deleting or editing a line breaks the chain, so tampering shows |
+| 16 | Tool names are shown to the agent as `server__tool` | Two servers can't offer the "same" tool, and every decision names the real server |
