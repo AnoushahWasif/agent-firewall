@@ -58,7 +58,7 @@ async def run_case(case: Case, enforce: bool, root: Path | None = None) -> Outco
         model = GullibleModel(list(case.task_steps), case.trigger, list(case.attack))
         start = time.perf_counter()
         async with Client(firewall) as client:
-            run = await run_task(case.task, client, model, max_steps=12)
+            run = await run_task(case.task, client, model, max_steps=12, relist=True)
         seconds = time.perf_counter() - start
         refused = [
             m.content
