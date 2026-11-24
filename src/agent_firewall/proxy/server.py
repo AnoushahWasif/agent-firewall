@@ -11,7 +11,7 @@ What it refuses, by construction:
 """
 
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -26,7 +26,7 @@ from agent_firewall.checks.leaks import copied_output, personal_data, secret_in_
 from agent_firewall.checks.memory import OutputMemory
 from agent_firewall.checks.result_scanner import decide, fence, scan_result
 from agent_firewall.checks.verdict import Decision, Verdict, combine
-from agent_firewall.policy import Policy, PolicyEngine, ToolPolicy
+from agent_firewall.policy import Policy, PolicyEngine, ToolPolicy, not_allowed
 from agent_firewall.proxy.gate import Listing, ToolGate, shown
 from agent_firewall.proxy.naming import SEP, check_server_name, public_name, split_name
 
@@ -120,10 +120,19 @@ def build_firewall(
     policy: PolicyEngine | None = None,
     model: InjectionModel | None = None,
     enforce: bool = True,
+    observe: Callable[[str, str, Decision], None] | None = None,
 ) -> Server[dict[str, Any]]:
     """`enforce=False` lists and routes everything with no checks at all: the same plumbing as
-    the real firewall, used by the evaluation to measure what gets through without it."""
+    the real firewall, used by the evaluation to measure what gets through without it.
+
+    `observe(stage, tool, decision)` hears every decision that isn't a plain allow, at
+    "list", "call" or "result": the hook the audit log and the evaluation build on."""
     gate = gate or ToolGate()
+
+    def seen(stage: str, name: str, decision: Decision | None) -> None:
+        if observe is not None and decision is not None and decision.verdict is not Verdict.ALLOW:
+            observe(stage, name, decision)
+
     policy = policy or allow_every_server(upstreams)
     names = [u.name for u in upstreams]
     if len(set(names)) != len(names):
@@ -158,14 +167,16 @@ def build_firewall(
                 tools=[t.model_copy(update={"name": public_name(s, t.name)}) for s, t in listing]
             )
         decisions = gate.review(listing)
-        return types.ListToolsResult(
-            tools=[
-                tool.model_copy(update={"name": name})
-                for server, tool in listing
-                if shown(decisions[name := public_name(server, tool.name)])
-                and policy.policy.allows(name)
-            ]
-        )
+        shown_tools = []
+        for server, tool in listing:
+            name = public_name(server, tool.name)
+            hidden = (
+                decisions[name] if not shown(decisions[name]) else not_allowed(policy.policy, name)
+            )
+            seen("list", name, hidden)
+            if hidden is None:
+                shown_tools.append(tool.model_copy(update={"name": name}))
+        return types.ListToolsResult(tools=shown_tools)
 
     async def call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         clients: dict[str, Client] = ctx.lifespan_context["clients"]
@@ -188,6 +199,7 @@ def build_firewall(
         if decision is None:
             return _error(f"Unknown tool {params.name!r}")
         if not shown(decision):
+            seen("call", params.name, decision)
             return _error(f"Blocked by the firewall ({decision.rule}): {decision.reason}")
         live = next(t for srv, t in listing if srv == server and t.name == tool)
         arguments = params.arguments or {}
@@ -200,6 +212,7 @@ def build_firewall(
             )
             if d is not None
         )
+        seen("call", params.name, verdict)
         if verdict.verdict is Verdict.ASK:
             # Approvals arrive on day 14; until a person can answer, "ask" means no.
             return _error(f"Needs a person's approval ({verdict.rule}): {verdict.reason}")
@@ -217,6 +230,7 @@ def build_firewall(
         findings = scan_result(text, model)
         rule = policy.policy.rule_for(params.name)
         outcome = decide(findings, rule.result_injection if rule else "label")
+        seen("result", params.name, outcome)
         if outcome is None:
             return result
         fenced = fence(text, params.name, findings)
