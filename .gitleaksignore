@@ -1,0 +1,5 @@
+# Test fixtures, not credentials: made-up passwords the leak-check tests try to smuggle out.
+# Both were committed as literals before being built at runtime; these lines silence only those
+# two findings (commit:file:rule:line), so a real secret anywhere else still fails CI.
+018bc8a79a0e03398bdcb647ff85996d906fd702:tests/test_checks_leaks.py:generic-api-key:132
+5dad262e6425ab7c2b028b6d468b9473e1c957b2:tests/test_proxy_leaks.py:generic-api-key:26
