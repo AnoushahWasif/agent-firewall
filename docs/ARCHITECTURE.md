@@ -122,6 +122,18 @@ The scanner reads every text in a definition that reaches the model: the name an
 | TS05 | A description over 4,000 characters | ask |
 | PIN01 | The definition changed since it was first seen and pinned (rug pull) | block |
 
+### Policy rules (day 5)
+
+The policy is a TOML file the config must name. Tools are named exactly (`files__read_file`) or by server (`cves__*`), and an exact entry beats the server's. A tool the policy doesn't name is hidden from the agent's listing and refused if called anyway. Writing a rule for one of a tool's arguments names the tool too, because TOML creates the parent table.
+
+| Rule | Checks | Verdict |
+|---|---|---|
+| POL01 | The policy names the tool | block |
+| POL02 | Arguments fit the tool's own input schema (JSON Schema 2020-12) and are under 64 KB. A schema that can't be used blocks, and the reason names the field, never the value | block |
+| POL03 | Per-argument rules: `pattern` (whole value), `domains` (URL host or email domain, subdomains included, so `nvd.nist.gov.evil.example` doesn't count), `max_length` (for a list, the number of items), `one_of`. Lists are checked item by item | block |
+| POL04 | Calls per tool within a sliding window. Only calls that go ahead count | block |
+| POL05 | `ask = true`: a person approves every call, after every other check has passed | ask |
+
 ## Repository layout (planned)
 
 ```
@@ -208,6 +220,8 @@ Agents are random, so each case runs several times, with intervals.
 | 20 | Every call re-checks the live definitions (the client's listing cache bypassed) before it runs (day 4) | A rug pull right after a tool was approved is caught at the moment it's used, not at the next listing. It costs one `tools/list` per call, measured on day 8 |
 | 21 | `ask` withholds the tool until approvals exist (day 14) | Until a person can answer, "ask" has to mean "no" |
 | 22 | The policy is TOML, not YAML (changed on day 5) | YAML aliases and merge keys let a few hundred bytes expand exponentially (found the hard way in ThreatLens). TOML has neither, and Python reads it without a dependency |
+| 23 | The config must name a policy file. Without a policy, only library use and tests get "allow every configured server" (day 5) | A firewall that starts open by default because a line was forgotten fails quietly, the worst way |
+| 24 | Policy checks run after the tool scanner and pins, on the live definition's schema (day 5) | Arguments are checked against the definition that was actually scanned and pinned, not one from an earlier listing |
 
 ## Threat model of the firewall itself (STRIDE)
 
