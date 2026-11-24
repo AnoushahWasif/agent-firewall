@@ -108,3 +108,21 @@ sequenceDiagram
 - **What each check returns:** `allow`, `label` (allow, but fence part of the result), `ask` (a person decides) or `block`, with a rule id and a short reason.
 - **How they combine:** the strictest answer wins, and the order is block, ask, label, allow.
 - **When a check breaks:** a check that crashes or times out answers `block` for calls, and `label` for results. A broken check never lets something through silently.
+
+## Repository layout (planned)
+
+```
+src/agent_firewall/
+    proxy/        MCP proxy: client side, server side, routing
+    checks/       tool scanner, policy, leak check, result scanner, guard LLM
+    policy/       YAML loading and schema
+    audit.py      hash-chained JSON lines
+    agent/        demo agent loop, model adapters (scripted fake, Ollama)
+    tools/        our MCP tool servers (files, web, cves, email outbox)
+attacks/          attack and normal-task cases, as data, with sources
+evaluation/       harness and metrics
+models/           guard LLM training notebook and manifest (weights not committed)
+notebooks/gpt-from-scratch/
+dashboard/        Next.js static site
+infra/            optional Terraform
+```
