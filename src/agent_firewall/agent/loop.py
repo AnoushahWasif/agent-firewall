@@ -41,13 +41,18 @@ async def list_tool_specs(client: Client) -> list[ToolSpec]:
 
 
 async def run_task(
-    task: str, client: Client, model: Model, max_steps: int = MAX_STEPS
+    task: str, client: Client, model: Model, max_steps: int = MAX_STEPS, relist: bool = False
 ) -> RunResult:
+    """`relist=True` refreshes the tool list before every step, as clients do when a server
+    says its tools changed. That's how a changed description (a rug pull) reaches the model."""
     tools = await list_tool_specs(client)
     offered = {t.name for t in tools}
     transcript = [Message("user", task)]
     calls = 0
     for _ in range(max_steps):
+        if relist and calls:
+            tools = await list_tool_specs(client)
+            offered = {t.name for t in tools}
         try:
             step = await model.next_step(transcript, tools)
         except Exception as exc:  # a broken model ends the run, it doesn't crash the caller
