@@ -46,7 +46,17 @@ async def test_search_is_plain_text_with_line_numbers(shared):
 
 @pytest.mark.parametrize(
     "path",
-    ["../secret.txt", "logs/../../secret.txt", "/etc/passwd", "C:/Windows/win.ini", "a\x00b"],
+    [
+        "../secret.txt",
+        "logs/../../secret.txt",
+        "/etc/passwd",
+        # Windows-style paths are refused the same way on every OS.
+        "C:/Windows/win.ini",
+        "c:secret.txt",
+        "logs\\..\\..\\secret.txt",
+        "\\\\server\\share\\x",
+        "a\x00b",
+    ],
 )
 async def test_nothing_outside_the_folder(shared, path):
     async with Client(build_server(shared)) as c:

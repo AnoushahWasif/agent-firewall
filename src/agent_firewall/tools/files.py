@@ -20,6 +20,10 @@ def resolve_inside(root: Path, relative: str) -> Path:
     """`relative` under `root`, or ToolError if it points anywhere else."""
     if "\x00" in relative:
         raise ToolError("Path contains a NUL character")
+    # Drive letters and backslashes mean "elsewhere" on Windows but are plain characters on
+    # Linux. Refusing them everywhere keeps one rule for every machine the server runs on.
+    if "\\" in relative or (len(relative) > 1 and relative[1] == ":"):
+        raise ToolError("Path is outside the shared folder")
     root = root.resolve()
     candidate = (root / relative).resolve()
     if not candidate.is_relative_to(root):
