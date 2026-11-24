@@ -21,8 +21,10 @@ from mcp import Client, StdioServerParameters
 from mcp.server import MCPServer
 from mcp.server.lowlevel import Server
 
+from agent_firewall.checks.injection_model import InjectionModel
 from agent_firewall.checks.leaks import copied_output, personal_data, secret_in_arguments
 from agent_firewall.checks.memory import OutputMemory
+from agent_firewall.checks.result_scanner import decide, fence, scan_result
 from agent_firewall.checks.verdict import Decision, Verdict, combine
 from agent_firewall.policy import Policy, PolicyEngine, ToolPolicy
 from agent_firewall.proxy.gate import Listing, ToolGate, shown
@@ -66,9 +68,30 @@ async def _all_tools(client: Client) -> list[types.Tool]:
 
 def _result_text(result: types.CallToolResult) -> str:
     parts = [getattr(block, "text", "") or "" for block in result.content]
-    if result.structured_content is not None:
-        parts.append(json.dumps(result.structured_content, ensure_ascii=False, default=str))
-    return "\n".join(parts)
+    text = "\n".join(parts)
+    structured = result.structured_content
+    # The SDK's {"result": text} wrapper repeats the content; anything else is extra data.
+    if structured is not None and structured != {"result": text}:
+        text += "\n" + json.dumps(structured, ensure_ascii=False, default=str)
+    return text
+
+
+_CANNOT_LABEL = object()
+
+
+def _labelled_structure(output_schema: dict[str, Any] | None, fenced: str) -> Any:
+    """Structured content for a labelled result. MCP clients require structured content from a
+    tool that declares an output schema, so it can't simply be dropped:
+    - no output schema: none;
+    - the `{"result": string}` wrapper SDKs generate for text-returning tools: the fenced text;
+    - anything else: the firewall can't fence data it doesn't understand, so the result is
+      withheld instead (_CANNOT_LABEL)."""
+    if output_schema is None:
+        return None
+    props = output_schema.get("properties") or {}
+    if set(props) == {"result"} and (props["result"] or {}).get("type") == "string":
+        return {"result": fenced}
+    return _CANNOT_LABEL
 
 
 def leak_checks(
@@ -95,6 +118,7 @@ def build_firewall(
     upstreams: Sequence[Upstream],
     gate: ToolGate | None = None,
     policy: PolicyEngine | None = None,
+    model: InjectionModel | None = None,
 ) -> Server[dict[str, Any]]:
     gate = gate or ToolGate()
     policy = policy or allow_every_server(upstreams)
@@ -174,9 +198,28 @@ def build_firewall(
         except Exception:
             # The upstream's own error text could be anything; the agent gets a fixed message.
             return _error(f"Tool server {server!r} failed to answer")
+        text = _result_text(result)
         if not result.is_error:
-            memory.remember(_result_text(result))
-        return result
+            memory.remember(text)
+        # Error results are scanned too: the server writes that text as well.
+        findings = scan_result(text, model)
+        rule = policy.policy.rule_for(params.name)
+        outcome = decide(findings, rule.result_injection if rule else "label")
+        if outcome is None:
+            return result
+        fenced = fence(text, params.name, findings)
+        structured = _labelled_structure(live.output_schema, fenced)
+        if outcome.verdict is Verdict.BLOCK or structured is _CANNOT_LABEL:
+            return _error(
+                f"The firewall withheld this tool's result ({outcome.rule}): {outcome.reason}"
+            )
+        # Labelled: the fenced text replaces the content. Structured content, which would carry
+        # the same text to the model unfenced, is replaced too (see _labelled_structure).
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=fenced)],
+            structured_content=structured,
+            is_error=result.is_error,
+        )
 
     return Server(
         "agent-firewall",
