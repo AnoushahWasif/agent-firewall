@@ -1,5 +1,7 @@
 """The firewall's config file: which tool servers sit behind it.
 
+    pins = "pins.json"            # where tool pins are kept; leave out to keep them in memory
+
     [servers.files]
     command = "python"            # "python" means the interpreter running the firewall
     args = ["-m", "agent_firewall.tools", "files", "--root", "shared"]
@@ -16,11 +18,14 @@ firewall's own environment never reach them.
 
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 from mcp import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from agent_firewall.checks.pins import PinStore
+from agent_firewall.proxy.gate import ToolGate
 from agent_firewall.proxy.naming import check_server_name
 from agent_firewall.proxy.server import Upstream
 
@@ -42,6 +47,7 @@ class ServerConfig(BaseModel):
 class FirewallConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    pins: str | None = Field(default=None, min_length=1, max_length=500)
     servers: dict[str, ServerConfig] = Field(min_length=1, max_length=MAX_SERVERS)
 
     @field_validator("servers")
@@ -52,7 +58,13 @@ class FirewallConfig(BaseModel):
         return servers
 
 
-def load(path: Path) -> list[Upstream]:
+@dataclass(frozen=True)
+class Setup:
+    upstreams: list[Upstream]
+    gate: ToolGate
+
+
+def load(path: Path) -> Setup:
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -64,7 +76,7 @@ def load(path: Path) -> list[Upstream]:
     except ValidationError as exc:
         raise ConfigError(f"{path}: {exc.errors()[0]['msg']}") from exc
     folder = path.resolve().parent
-    return [
+    upstreams = [
         Upstream(
             name,
             StdioServerParameters(
@@ -76,3 +88,5 @@ def load(path: Path) -> list[Upstream]:
         )
         for name, server in config.servers.items()
     ]
+    pins = PinStore(folder / config.pins if config.pins else None)
+    return Setup(upstreams, ToolGate(pins))

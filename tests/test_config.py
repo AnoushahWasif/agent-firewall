@@ -24,7 +24,7 @@ command = "/usr/bin/other-server"
 env = { LANG = "C.UTF-8" }
 """,
     )
-    files, other = load(path)
+    files, other = load(path).upstreams
     assert files.name == "files" and files.target.command == sys.executable
     assert files.target.args[-1] == "shared"
     assert files.target.cwd == tmp_path.resolve()
@@ -60,3 +60,9 @@ def test_at_most_twenty_servers(tmp_path):
     text = "\n".join(f'[servers.s{i}]\ncommand = "x"' for i in range(21))
     with pytest.raises(ConfigError):
         load(write(tmp_path, text))
+
+
+def test_pins_live_next_to_the_config(tmp_path):
+    setup = load(write(tmp_path, 'pins = "state/pins.json"\n[servers.files]\ncommand = "x"'))
+    assert setup.gate.pins.path == tmp_path.resolve() / "state" / "pins.json"
+    assert load(write(tmp_path, '[servers.files]\ncommand = "x"')).gate.pins.path is None
