@@ -189,3 +189,27 @@ Agents are random, so each case runs several times, with intervals.
 | 14 | Checks combine by "strictest wins" (block > ask > label > allow); a check that fails or times out blocks calls and labels results | A firewall that lets traffic through when it breaks is no firewall |
 | 15 | The audit log is append-only JSON lines, each carrying the SHA-256 of the line before | Deleting or editing a line breaks the chain, so tampering shows |
 | 16 | Tool names are shown to the agent as `server__tool` | Two servers can't offer the "same" tool, and every decision names the real server |
+
+## Threat model of the firewall itself (STRIDE)
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| Spoofing | A malicious server registers a tool with the same name as a trusted one | Tools are identified by server and name together; a duplicate name across servers is flagged |
+| Tampering | A tool's description or schema changes after approval | Hash pinning (decision 3) |
+| Tampering | The policy file is edited to allow everything | Policy is loaded read-only at startup, its hash is logged, and a change needs a restart |
+| Spoofing | A tool server asks the agent's model or the user something directly (MCP `sampling` or `elicitation`) | Refused unless the policy allows it (decision 13) |
+| Repudiation | Nobody can say why a call was allowed | Every decision is logged with the rule that made it |
+| Tampering | Audit lines are edited or deleted to hide an incident | Hash chain (decision 15); a check command reports the first broken line |
+| Information disclosure | Secrets leave through tool arguments, or end up in the audit log | Leak check before sending (component above); the log keeps hashes only (decision 9) |
+| Information disclosure | A secret read by one tool (a file) is sent out by another (email, web) | The leak check tracks fingerprints of earlier results and blocks them heading to tools that send data out |
+| Denial of service | A tool returns huge output, or the agent loops on calls | Size caps on results, rate limits per tool, a step limit per task |
+| Denial of service | The guard LLM is slow or hangs | A time limit per check; on timeout, results are labelled and calls are blocked (decision 14) |
+| Elevation of privilege | Instructions in a web page make the agent call a tool it shouldn't | Policy is decided per call, whatever the agent was told. The result scanner labels the injected text |
+| Elevation of privilege | The firewall itself is bypassed | The agent only knows the firewall's address. In the AWS setup, the tool servers accept only the firewall's network |
+
+## Out of scope (v1)
+
+- **A dishonest model provider, or a compromised agent host.** The firewall trusts the machine it runs on.
+- **Sandboxing the tool servers themselves.** The firewall decides which calls reach a server, but a server's own code still runs with its user's rights. Run real servers in containers.
+- **The agent's built-in tools.** Tools that don't go through MCP, such as a built-in shell, aren't seen.
+- **Attacks the rules and models don't recognise.** These are measured, not claimed away: the results report what got through.
