@@ -2,6 +2,7 @@ import pytest
 
 from agent_firewall.policy import (
     Policy,
+    PolicyEngine,
     PolicyError,
     bad_arguments,
     broken_argument_rule,
@@ -172,3 +173,61 @@ def test_a_missing_argument_is_left_to_the_schema(tmp_path):
 def test_bad_argument_rules_are_refused_at_load(tmp_path, args_toml, message):
     with pytest.raises(PolicyError, match=message):
         tool_policy(tmp_path, args_toml)
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+SCHEMA = {"type": "object", "properties": {"q": {"type": "string"}}}
+
+
+def engine(tmp_path, text, clock=None):
+    return PolicyEngine(policy_from(tmp_path, text), clock or Clock())
+
+
+def test_rate_limits_use_a_sliding_window(tmp_path):
+    clock = Clock()
+    e = engine(
+        tmp_path, '[tools."web__fetch_page"]\nrate = { calls = 2, per_seconds = 60 }\n', clock
+    )
+    assert e.review_call("web__fetch_page", {}, SCHEMA) is None
+    assert e.review_call("web__fetch_page", {}, SCHEMA) is None
+    assert e.review_call("web__fetch_page", {}, SCHEMA).rule == "POL04"
+    clock.now += 61
+    assert e.review_call("web__fetch_page", {}, SCHEMA) is None
+
+
+def test_blocked_calls_do_not_use_up_the_limit(tmp_path):
+    e = engine(tmp_path, '[tools."t__x"]\nrate = { calls = 1, per_seconds = 60 }\n')
+    for _ in range(5):
+        assert e.review_call("t__x", {"q": 7}, SCHEMA).rule == "POL02"
+    assert e.review_call("t__x", {"q": "ok"}, SCHEMA) is None
+
+
+def test_limits_are_per_tool(tmp_path):
+    e = engine(tmp_path, '[tools."t__*"]\nrate = { calls = 1, per_seconds = 60 }\n')
+    assert e.review_call("t__a", {}, SCHEMA) is None
+    assert e.review_call("t__b", {}, SCHEMA) is None
+    assert e.review_call("t__a", {}, SCHEMA).rule == "POL04"
+
+
+def test_ask_tools_go_to_a_person_after_every_other_check(tmp_path):
+    e = engine(
+        tmp_path,
+        '[tools."email__send_report"]\nask = true\n'
+        '[tools."email__send_report".args.to]\ndomains = ["example.com"]\n',
+    )
+    schema = {"type": "object", "properties": {"to": {"type": "array"}}}
+    assert e.review_call("email__send_report", {"to": ["a@example.com"]}, schema).rule == "POL05"
+    # A call that breaks a rule is blocked outright, not offered to a person.
+    assert e.review_call("email__send_report", {"to": ["a@evil.example"]}, schema).rule == "POL03"
+
+
+def test_the_engine_blocks_what_the_policy_does_not_name(tmp_path):
+    e = engine(tmp_path, '[tools."files__read_file"]\n')
+    assert e.review_call("files__write_file", {}, SCHEMA).rule == "POL01"

@@ -21,11 +21,16 @@ Rules (ids appear in the audit log):
   POL01 not allowed: the policy doesn't name the tool
   POL02 bad arguments: they don't fit the tool's own input schema, or they're too large
   POL03 argument rule: an argument breaks a rule in the policy (pattern, domains, length, choices)
+  POL04 rate limit: the tool was called too often in its window
+  POL05 needs a person: the policy says every call to this tool is approved by hand
 """
 
 import json
 import re
+import time
 import tomllib
+from collections import defaultdict, deque
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -79,9 +84,18 @@ class ArgRule(BaseModel):
         return domains
 
 
+class Rate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    calls: int = Field(ge=1, le=100_000)
+    per_seconds: int = Field(ge=1, le=86_400)
+
+
 class ToolPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    ask: bool = False
+    rate: Rate | None = None
     args: dict[str, ArgRule] = Field(default_factory=dict, max_length=50)
 
 
@@ -193,6 +207,48 @@ def broken_argument_rule(tool: ToolPolicy, arguments: dict[str, Any]) -> Decisio
         if problem:
             return Decision(Verdict.BLOCK, "POL03", f"argument {name} {problem}")
     return None
+
+
+class RateLimiter:
+    """Sliding window per tool, in memory. Only calls that go ahead are counted."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic):
+        self._clock = clock
+        self._seen: defaultdict[str, deque[float]] = defaultdict(deque)
+
+    def over(self, name: str, rate: Rate) -> bool:
+        now = self._clock()
+        seen = self._seen[name]
+        while seen and seen[0] <= now - rate.per_seconds:
+            seen.popleft()
+        return len(seen) >= rate.calls
+
+    def count(self, name: str) -> None:
+        self._seen[name].append(self._clock())
+
+
+class PolicyEngine:
+    """Runs the policy's checks on one call, in order, and counts it if it goes ahead."""
+
+    def __init__(self, policy: Policy, clock: Callable[[], float] = time.monotonic):
+        self.policy = policy
+        self.limiter = RateLimiter(clock)
+
+    def review_call(
+        self, name: str, arguments: dict[str, Any], input_schema: dict[str, Any]
+    ) -> Decision | None:
+        tool = self.policy.rule_for(name)
+        if tool is None:
+            return not_allowed(self.policy, name)
+        problem = bad_arguments(arguments, input_schema) or broken_argument_rule(tool, arguments)
+        if problem:
+            return problem
+        if tool.rate and self.limiter.over(name, tool.rate):
+            return Decision(Verdict.BLOCK, "POL04", "the tool was called too often; try later")
+        self.limiter.count(name)
+        if tool.ask:
+            return Decision(Verdict.ASK, "POL05", "the policy wants a person to approve this call")
+        return None
 
 
 def load(path: Path) -> Policy:
