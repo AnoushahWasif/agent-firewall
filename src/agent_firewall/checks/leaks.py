@@ -5,12 +5,15 @@ Rules (ids appear in the audit log; reasons name the kind and the argument, neve
        server has leaked to it, whatever the tool does next
   LK02 personal data: card numbers, IBANs, US social security numbers, in calls to tools that
        send data out. Asked about: a person may mean to send them
+  LK03 copied output: text the agent read from a tool earlier this session, heading out through a
+       tool that sends data out. The policy decides per tool: ask (default), block or allow
 """
 
 import re
 from collections.abc import Iterator
 from typing import Any
 
+from agent_firewall.checks.memory import OutputMemory
 from agent_firewall.checks.verdict import Decision, Verdict
 
 MAX_DEPTH = 10
@@ -105,4 +108,15 @@ def personal_data(arguments: dict[str, Any]) -> Decision | None:
                 return Decision(Verdict.ASK, "LK02", f"a bank account is in argument {path[:60]}")
         if SSN.search(text):
             return Decision(Verdict.ASK, "LK02", f"an ID number is in argument {path[:60]}")
+    return None
+
+
+def copied_output(
+    arguments: dict[str, Any], memory: OutputMemory, verdict: Verdict = Verdict.ASK
+) -> Decision | None:
+    if verdict is Verdict.ALLOW:
+        return None
+    for path, text in bounded(arguments):
+        if memory.copied(text):
+            return Decision(verdict, "LK03", f"argument {path[:60]} repeats earlier tool output")
     return None

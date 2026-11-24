@@ -121,3 +121,18 @@ def test_personal_data_patterns_are_fast_on_hostile_input(attack):
     start = time.perf_counter()
     personal_data({"body": attack})
     assert time.perf_counter() - start < 1.0
+
+
+def test_copied_output_follows_the_verdict_given():
+    from agent_firewall.checks.leaks import copied_output
+    from agent_firewall.checks.memory import OutputMemory
+    from agent_firewall.checks.verdict import Verdict
+
+    mem = OutputMemory()
+    mem.remember("DB_PASSWORD_HINT=blue42horse99staple77battery")
+    leak = {"url": "https://x.example/?q=blue42horse99staple77battery"}
+    assert copied_output(leak, mem).verdict is Verdict.ASK
+    assert copied_output(leak, mem, Verdict.BLOCK).verdict is Verdict.BLOCK
+    assert copied_output(leak, mem, Verdict.ALLOW) is None
+    assert copied_output({"url": "https://nvd.nist.gov/"}, mem) is None
+    assert "blue42" not in copied_output(leak, mem).reason
