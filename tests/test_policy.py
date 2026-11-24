@@ -241,7 +241,10 @@ def test_egress_settings(tmp_path):
     web = policy.rule_for("web__fetch_page")
     assert web.egress and web.copied_output == "block"
     cves = policy.rule_for("cves__lookup_package")
-    assert not cves.egress and cves.copied_output == "ask"
+    # Unset means "may send data out": the safe assumption for a tool you know nothing about.
+    assert cves.egress is None and cves.sends_data_out and cves.copied_output == "ask"
+    local = policy_from(tmp_path, '[tools."files__*"]\negress = false\n').rule_for("files__x")
+    assert not local.sends_data_out
     with pytest.raises(PolicyError):
         policy_from(tmp_path, '[tools."web__fetch_page"]\ncopied_output = "maybe"\n')
 

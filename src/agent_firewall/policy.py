@@ -96,9 +96,15 @@ class ToolPolicy(BaseModel):
 
     ask: bool = False
     rate: Rate | None = None
-    # Sends data outside (a web request, an email): personal data and earlier tool output in
-    # its arguments are checked (LK02, LK03).
-    egress: bool = False
+    # Can send data outside (a web request, an email, any server you don't control): personal
+    # data and earlier tool output in its arguments are checked (LK02, LK03). Left unset, a tool
+    # counts as egress; set `egress = false` only for tools known to keep data local.
+    egress: bool | None = None
+
+    @property
+    def sends_data_out(self) -> bool:
+        return self.egress is not False
+
     copied_output: Literal["ask", "block", "allow"] = "ask"
     # What an injection found in this tool's result does (RS01-RS03): fence and label it,
     # withhold the result, or let it through.

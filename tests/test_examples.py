@@ -30,4 +30,5 @@ def test_the_example_marks_web_and_email_as_egress():
     assert rules.rule_for("web__fetch_page").egress
     assert rules.rule_for("web__fetch_page").copied_output == "block"
     assert rules.rule_for("email__send_report").egress
-    assert not rules.rule_for("files__read_file").egress
+    assert not rules.rule_for("files__read_file").sends_data_out
+    assert not rules.rule_for("cves__lookup_package").sends_data_out

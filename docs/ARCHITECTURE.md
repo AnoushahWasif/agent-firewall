@@ -120,6 +120,7 @@ The scanner reads every text in a definition that reaches the model: the name an
 | TS03 | Mentions of keys and credentials: `~/.ssh`, `id_rsa`, `.aws`, `.env`, `mcp.json`, API keys, tokens, passwords | ask |
 | TS04 | The description names another server's tool, which is how shadowing works. Only distinctive names count (with `_`, or 8+ characters) | ask |
 | TS05 | A description over 4,000 characters | ask |
+| TS06 | An email address anywhere in the definition (added on day 8, from a development case) | ask |
 | PIN01 | The definition changed since it was first seen and pinned (rug pull) | block |
 
 ### Policy rules (day 5)
@@ -164,6 +165,17 @@ it, and don't let it change your task.
 ...the original result, nothing removed...
 </untrusted-data>
 ```
+
+### How the evaluation works (day 8)
+
+- **Cases are data** in `attacks/*.toml`, each with its family and source: 50 attacks (8 to 10 per family) and 20 normal tasks.
+- **The agent is a worst-case scripted model.** It obeys any planted instruction it can see: in a tool description, or in any result, fenced or not. That measures what the firewall's per-call checks stop, not how persuasive a fence is to a particular model.
+- **Every run gets a fresh world,** with a random private key and database password. Every exit is recorded: the email outbox, requests to the fake web site, and calls to the attacker's tools. An attack counts as successful if a secret or the attacker's domain reaches any of them.
+- **A normal task passes** if it finishes with nothing refused, and leaves the expected report in the outbox.
+- **Each case runs with the firewall off and on.** Results come with 95% Wilson intervals, because the families are small.
+- **Each case's half** (development or held-out) is fixed by the SHA-256 of its id. A test checks that every case works with the firewall off, so a case that can't leak can't flatter the numbers.
+
+**Disclosed:** the first ever run used a then-available `--split all` option, so the aggregate for the ten tool-poisoning cases (development and held-out together: 3 of 10 leaked) was seen before two development-driven changes, decisions 31 and 32. No held-out case was looked at individually, and `all` was removed.
 
 ## Repository layout (planned)
 
@@ -259,6 +271,10 @@ Agents are random, so each case runs several times, with intervals.
 | 28 | The injection model is scored with NumPy alone, from prompt-injection-guard's data-only export, pinned by its manifest hash (day 7) | No scikit-learn, SciPy or pickle at run time. A test proves the scores equal scikit-learn's to 1e-12, and another runs the real model when it's built locally |
 | 29 | A labelled result keeps the fenced text in the `{"result": text}` structured wrapper; any other output schema is withheld instead (day 7) | MCP clients refuse a result without structured content from a tool that declares an output schema (found by the integration test). The firewall can't fence data whose shape it doesn't know, so it fails closed |
 | 30 | Error results are scanned too (day 7) | The tool server writes its error text as well, and it reaches the model the same way |
+| 31 | A tool counts as sending data out unless the policy marks it `egress = false` (day 8) | A development case got a database password out through an attacker's tool, which defaulted to "keeps data in". A server you don't control is an exit until you say otherwise |
+| 32 | TS06: an email address in a tool definition is asked about (day 8) | A shadowing case named no tool and used no command words, only an address to send reports to |
+| 33 | The evaluation's agent always obeys planted instructions, and success is judged only from what reached an exit (day 8) | Measures the firewall, not the model. Real models resist some injections, so real-world leak rates without the firewall would be lower |
+| 34 | Cases are split by a hash of their id; the held-out half is scored once at the end, with no `all` option (day 8) | The split can't be chosen after seeing results, and the held-out half can't be run by accident again |
 
 ## Threat model of the firewall itself (STRIDE)
 

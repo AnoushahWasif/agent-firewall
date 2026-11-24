@@ -13,6 +13,7 @@ Rules (ids appear in the audit log):
        Asked about rather than blocked: a real tool may mention a password
   TS04 shadowing: the description refers to another server's tool by name
   TS05 oversized: a description over 4,000 characters, a good place to bury instructions
+  TS06 an email address in the definition: where an attacker would point data (day 8)
 """
 
 import re
@@ -134,6 +135,18 @@ def sensitive_targets(tool: ToolDef) -> Decision | None:
     return None
 
 
+EMAIL_ADDRESS = re.compile(r"[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+")
+
+
+def email_address(tool: ToolDef) -> Decision | None:
+    """A tool description has little reason to name an email address, and an attacker steering
+    data somewhere does: "reports are archived by including drop@... among recipients"."""
+    for text in texts(tool):
+        if EMAIL_ADDRESS.search(normalise(text)):
+            return Decision(Verdict.ASK, "TS06", "the definition names an email address")
+    return None
+
+
 MAX_DESCRIPTION_CHARS = 4_000
 
 
@@ -143,7 +156,7 @@ def oversized(tool: ToolDef) -> Decision | None:
     return None
 
 
-RULES = (hidden_characters, orders_for_the_model, sensitive_targets, oversized)
+RULES = (hidden_characters, orders_for_the_model, sensitive_targets, oversized, email_address)
 
 
 def _distinctive(name: str) -> bool:

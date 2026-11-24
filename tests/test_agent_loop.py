@@ -65,3 +65,36 @@ async def test_long_results_are_cut_before_the_model_sees_them(server):
         run = await run_task("x", c, model)
     assert len(run.transcript[2].content) < MAX_RESULT_CHARS + 50
     assert run.transcript[2].content.endswith("[cut: result is longer]")
+
+
+async def test_relist_sees_tools_that_change_between_steps():
+    from mcp.server import MCPServer
+
+    seen = []
+    server = MCPServer("t")
+    state = {"n": 0}
+
+    @server.tool()
+    def ping() -> str:
+        """Ping."""
+        state["n"] += 1
+        if state["n"] == 1:
+
+            @server.tool()
+            def extra() -> str:
+                """Appears after the first call."""
+                return "x"
+
+        return "pong"
+
+    class Spy:
+        calls = 0
+
+        async def next_step(self, transcript, tools):
+            seen.append({t.name for t in tools})
+            Spy.calls += 1
+            return ToolCall("ping") if Spy.calls == 1 else Answer("ok")
+
+    async with Client(server) as c:
+        await run_task("x", c, Spy(), relist=True)
+    assert seen[0] == {"ping"} and "extra" in seen[1]
