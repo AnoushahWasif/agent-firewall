@@ -126,3 +126,21 @@ notebooks/gpt-from-scratch/
 dashboard/        Next.js static site
 infra/            optional Terraform
 ```
+
+## Evaluation
+
+| Set | What's in it | Source |
+|---|---|---|
+| **Attacks** | About 60 cases in 6 families: poisoned tool description, tool changed after approval ("rug pull"), a tool imitating another server's tool, instructions hidden in a web page, instructions hidden in a log file, and secrets sent out through arguments | Written by us from published write-ups, each with its source noted. Some also come from public agent-attack benchmarks, if their licences allow (checked on day 2) |
+| **Normal tasks** | About 60 ordinary jobs: summarise a log, look up a CVE, draft a report email | Written by us |
+
+**Metrics:**
+- Attacks stopped, per family, with the firewall on and off.
+- Normal tasks wrongly blocked.
+- Latency added, p50 and p95.
+
+Agents are random, so each case runs several times, with intervals.
+
+**Honesty rules:**
+- The attack set is split. Rules are written against half of it, and the other half is scored once at the end, like a test set.
+- Attacks we don't stop are kept and reported. They aren't quietly removed.
