@@ -213,3 +213,33 @@ Agents are random, so each case runs several times, with intervals.
 - **Sandboxing the tool servers themselves.** The firewall decides which calls reach a server, but a server's own code still runs with its user's rights. Run real servers in containers.
 - **The agent's built-in tools.** Tools that don't go through MCP, such as a built-in shell, aren't seen.
 - **Attacks the rules and models don't recognise.** These are measured, not claimed away: the results report what got through.
+
+## Cost
+
+Nothing here should cost money to build, test or run:
+- **Building and CI:** a scripted fake LLM in tests, the prompt-injection-guard model on CPU, and no cloud.
+- **The agent's real runs:** a local open model through Ollama, a tool-calling instruct model of about 7 to 8B parameters, chosen and pinned on day 16. It's slower on CPU and weaker at tool use than hosted models, so the results always name the model they come from.
+- **Guard LLM fine-tuning:** a free Colab GPU.
+- **AWS (optional, last):** the firewall and tool servers on Lambda or a small ECS task, in Terraform, inside the free tier with a budget alarm. Written and checked, but only applied on purpose.
+
+## Build plan (about 17 days)
+
+| Day | Work |
+|---|---|
+| 1 | Repo, this architecture, threat model, scaffold, CI |
+| 2 | Tool servers (`files`, `web`, `cves`, `email` outbox) + the demo agent with a scripted fake LLM; check licences of public attack sets |
+| 3 | Firewall as a pass-through MCP proxy, with recorded-traffic tests |
+| 4 | Tool scanner: hidden instructions in descriptions, hash pinning, duplicate names |
+| 5 | Policy engine: YAML, deny by default, argument schemas, path and domain allow-lists, rate limits |
+| 6 | Leak check: secrets, personal data, copied tool output heading out |
+| 7 | Result scanner using the prompt-injection-guard model; fencing and labelling |
+| 8 | Attack and normal-task sets; evaluation harness; first numbers (development half) |
+| 9 | Tiny GPT 1: tokenizer (BPE) and the transformer, with shape and masking tests |
+| 10 | Tiny GPT 2: training on security text, loss curves, samples, attention plots |
+| 11 | Guard LLM 1: base model chosen and pinned; training data built; base model scored with a prompt only |
+| 12 | Guard LLM 2: LoRA fine-tuning on Colab; adapter saved with its settings and hashes |
+| 13 | Guard LLM 3: merged to safetensors, CPU latency, wired into the firewall for borderline cases, compared with rules and prompt-injection-guard |
+| 14 | Approval flow and audit log |
+| 15 | Dashboard |
+| 16 | Real-model agent run on a local model (Ollama); HTTP transport |
+| 17 | Final scoring on the held-out attack half, README with results and limits, optional AWS Terraform |
