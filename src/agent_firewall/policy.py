@@ -100,6 +100,9 @@ class ToolPolicy(BaseModel):
     # its arguments are checked (LK02, LK03).
     egress: bool = False
     copied_output: Literal["ask", "block", "allow"] = "ask"
+    # What an injection found in this tool's result does (RS01-RS03): fence and label it,
+    # withhold the result, or let it through.
+    result_injection: Literal["label", "withhold", "allow"] = "label"
     args: dict[str, ArgRule] = Field(default_factory=dict, max_length=50)
 
 

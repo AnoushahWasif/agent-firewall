@@ -3,6 +3,10 @@
     policy = "policy.toml"        # required: what the agent may use (see policy.py)
     pins = "pins.json"            # where tool pins are kept; leave out to keep them in memory
 
+    [injection_model]             # optional: prompt-injection-guard's exported model
+    path = "models/portable"
+    manifest_sha256 = "..."       # pinned: a model whose files don't match isn't loaded
+
     [servers.files]
     command = "python"            # "python" means the interpreter running the firewall
     args = ["-m", "agent_firewall.tools", "files", "--root", "shared"]
@@ -26,6 +30,8 @@ from mcp import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from agent_firewall import policy as policy_file
+from agent_firewall.checks.injection_model import InjectionModel, ModelIntegrityError
+from agent_firewall.checks.injection_model import load as load_model
 from agent_firewall.checks.pins import PinStore
 from agent_firewall.proxy.gate import ToolGate
 from agent_firewall.proxy.naming import check_server_name
@@ -46,11 +52,19 @@ class ServerConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict, max_length=50)
 
 
+class ModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=500)
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class FirewallConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     policy: str = Field(min_length=1, max_length=500)
     pins: str | None = Field(default=None, min_length=1, max_length=500)
+    injection_model: ModelConfig | None = None
     servers: dict[str, ServerConfig] = Field(min_length=1, max_length=MAX_SERVERS)
 
     @field_validator("servers")
@@ -66,6 +80,7 @@ class Setup:
     upstreams: list[Upstream]
     gate: ToolGate
     policy: policy_file.PolicyEngine
+    model: InjectionModel | None = None
 
 
 def load(path: Path) -> Setup:
@@ -97,4 +112,12 @@ def load(path: Path) -> Setup:
         engine = policy_file.PolicyEngine(policy_file.load(folder / config.policy))
     except policy_file.PolicyError as exc:
         raise ConfigError(str(exc)) from exc
-    return Setup(upstreams, ToolGate(pins), engine)
+    model = None
+    if config.injection_model is not None:
+        try:
+            model = load_model(
+                folder / config.injection_model.path, config.injection_model.manifest_sha256
+            )
+        except ModelIntegrityError as exc:
+            raise ConfigError(f"injection model: {exc}") from exc
+    return Setup(upstreams, ToolGate(pins), engine, model)
