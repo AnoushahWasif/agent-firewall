@@ -244,3 +244,13 @@ def test_egress_settings(tmp_path):
     assert not cves.egress and cves.copied_output == "ask"
     with pytest.raises(PolicyError):
         policy_from(tmp_path, '[tools."web__fetch_page"]\ncopied_output = "maybe"\n')
+
+
+def test_result_injection_setting(tmp_path):
+    policy = policy_from(
+        tmp_path, '[tools."web__fetch_page"]\nresult_injection = "withhold"\n[tools."cves__*"]\n'
+    )
+    assert policy.rule_for("web__fetch_page").result_injection == "withhold"
+    assert policy.rule_for("cves__lookup_package").result_injection == "label"
+    with pytest.raises(PolicyError):
+        policy_from(tmp_path, '[tools."a__b"]\nresult_injection = "sometimes"\n')
