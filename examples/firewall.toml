@@ -1,6 +1,8 @@
 # The four demo tool servers behind the firewall. Paths are relative to this file's folder.
 #   uv run python -m agent_firewall --config examples/firewall.toml
 
+pins = "pins.json"  # tool pins (rug-pull protection), next to this file
+
 [servers.files]
 command = "python"
 args = ["-m", "agent_firewall.tools", "files", "--root", "shared"]
