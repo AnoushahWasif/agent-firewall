@@ -23,7 +23,7 @@ Design and threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Where att
 |---|---|
 | Tool servers (MCP, official Python SDK) | `files` (read-only, one folder), `web` (public pages only: SSRF checks, pinned address, size and time caps), `cves` (OSV.dev), `email` (drafts to an outbox, never sends) |
 | Demo agent | Agent loop with a step limit, plus a scripted model for free, repeatable tests |
-| Firewall | Not yet: day 3 starts the proxy |
+| Firewall | Pass-through MCP proxy: lists every server's tools as `server__tool`, routes calls, refuses resources, prompts and server-to-agent requests. The checks come next |
 
 ## Quick start
 
@@ -34,6 +34,24 @@ uv run pytest
 # Run a tool server over stdio, the way an MCP client starts it
 uv run python -m agent_firewall.tools files --root ./shared
 ```
+
+### Put the firewall in front of an agent
+
+Any MCP agent (Claude Desktop, an IDE agent, or the demo agent here) gets one server, the firewall, instead of its tool servers:
+
+```json
+{
+  "mcpServers": {
+    "firewall": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/agent-firewall",
+               "python", "-m", "agent_firewall", "--config", "examples/firewall.toml"]
+    }
+  }
+}
+```
+
+The firewall starts the servers named in [examples/firewall.toml](examples/firewall.toml) itself, so the agent never learns their commands.
 
 ## License
 
