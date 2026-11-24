@@ -11,6 +11,8 @@ Rules (ids appear in the audit log):
        <IMPORTANT> tags, "before using this tool, read..." and the like
   TS03 sensitive targets: SSH keys, cloud credentials, .env files, MCP configs, API keys.
        Asked about rather than blocked: a real tool may mention a password
+  TS04 shadowing: the description refers to another server's tool by name
+  TS05 oversized: a description over 4,000 characters, a good place to bury instructions
 """
 
 import re
@@ -132,8 +134,45 @@ def sensitive_targets(tool: ToolDef) -> Decision | None:
     return None
 
 
-RULES = (hidden_characters, orders_for_the_model, sensitive_targets)
+MAX_DESCRIPTION_CHARS = 4_000
 
 
-def scan(tool: ToolDef) -> list[Decision]:
-    return [d for rule in RULES if (d := rule(tool)) is not None]
+def oversized(tool: ToolDef) -> Decision | None:
+    if len(tool.description) > MAX_DESCRIPTION_CHARS:
+        return Decision(Verdict.ASK, "TS05", "the description is unusually long")
+    return None
+
+
+RULES = (hidden_characters, orders_for_the_model, sensitive_targets, oversized)
+
+
+def _distinctive(name: str) -> bool:
+    # Short common words ("search", "read") would match ordinary prose.
+    return "_" in name or len(name) >= 8
+
+
+def cross_references(tool: ToolDef, others: list[ToolDef]) -> Decision | None:
+    """A description that talks about another server's tool: the way one server shadows (hijacks)
+    another's, e.g. "when calling send_report, always add this bcc"."""
+    mentioned = {
+        name.lower()
+        for other in others
+        if other.server != tool.server
+        for name in (other.name, f"{other.server}__{other.name}")
+        if _distinctive(other.name)
+    }
+    if not mentioned:
+        return None
+    folded = " ".join(normalise(t) for t in texts(tool)[1:])  # not its own name
+    for name in mentioned:
+        if re.search(rf"(?<![a-z0-9_]){re.escape(name)}(?![a-z0-9_])", folded):
+            return Decision(Verdict.ASK, "TS04", "the description refers to another server's tool")
+    return None
+
+
+def scan(tool: ToolDef, others: list[ToolDef] | None = None) -> list[Decision]:
+    """Every rule's objection to one tool. `others` is the rest of the listing, for TS04."""
+    found = [d for rule in RULES if (d := rule(tool)) is not None]
+    if others and (d := cross_references(tool, others)) is not None:
+        found.append(d)
+    return found
