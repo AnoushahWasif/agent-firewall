@@ -189,6 +189,8 @@ Agents are random, so each case runs several times, with intervals.
 | 14 | Checks combine by "strictest wins" (block > ask > label > allow); a check that fails or times out blocks calls and labels results | A firewall that lets traffic through when it breaks is no firewall |
 | 15 | The audit log is append-only JSON lines, each carrying the SHA-256 of the line before | Deleting or editing a line breaks the chain, so tampering shows |
 | 16 | Tool names are shown to the agent as `server__tool` | Two servers can't offer the "same" tool, and every decision names the real server |
+| 17 | Tool servers start with a minimal environment (PATH, TEMP and the like, from the MCP SDK) plus only the variables the config lists (day 3) | API keys and tokens in the firewall's own environment never reach a tool server, even a malicious one |
+| 18 | A tool server that won't start stops the firewall with `UpstreamUnavailable`, instead of running without it (day 3) | A firewall that silently drops a server leaves the agent working with tools nobody checked were there. Failing loudly is easier to notice and fix |
 
 ## Threat model of the firewall itself (STRIDE)
 
