@@ -1,6 +1,6 @@
 import pytest
 
-from agent_firewall.checks.leaks import secret_in_arguments, strings
+from agent_firewall.checks.leaks import personal_data, secret_in_arguments, strings
 
 # Built at runtime so this file never holds a real-looking secret for scanners to trip on.
 AWS = "AKIA" + "Q" * 16
@@ -78,4 +78,46 @@ def test_no_pattern_is_slow_on_hostile_input(attack):
 
     start = time.perf_counter()
     secret_in_arguments({"body": attack})
+    assert time.perf_counter() - start < 1.0
+
+
+@pytest.mark.parametrize(
+    ("value", "kind"),
+    [
+        ("card 4111 1111 1111 1111 exp 12/29", "card number"),
+        ("4111-1111-1111-1111", "card number"),
+        ("5500005555555559", "card number"),
+        ("IBAN GB82 WEST 1234 5698 7654 32", "bank account"),
+        ("DE89370400440532013000", "bank account"),
+        ("ssn 123-45-6789", "ID number"),
+    ],
+)
+def test_personal_data_is_asked_about(value, kind):
+    decision = personal_data({"body": value})
+    assert decision.rule == "LK02" and kind in decision.reason
+    assert value not in decision.reason
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "order 4111 1111 1111 1112",  # fails Luhn
+        "call +44 20 7946 0958",
+        "GB82 WEST 1234 5698 7654 33",  # bad IBAN check digits
+        "000-12-3456",
+        "666-12-3456",
+        "CVE-2019-10906, CVE-2021-44228",
+        "port 51022 pid 4112 at 02:11:03",
+    ],
+)
+def test_lookalikes_do_not_count(value):
+    assert personal_data({"body": value}) is None
+
+
+@pytest.mark.parametrize("attack", ["1 " * 128_000, "GB12 " * 50_000, "123-45-" * 36_000])
+def test_personal_data_patterns_are_fast_on_hostile_input(attack):
+    import time
+
+    start = time.perf_counter()
+    personal_data({"body": attack})
     assert time.perf_counter() - start < 1.0

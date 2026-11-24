@@ -3,6 +3,8 @@
 Rules (ids appear in the audit log; reasons name the kind and the argument, never the value):
   LK01 secret: a known credential format in any argument of any call. A secret sent to a tool
        server has leaked to it, whatever the tool does next
+  LK02 personal data: card numbers, IBANs, US social security numbers, in calls to tools that
+       send data out. Asked about: a person may mean to send them
 """
 
 import re
@@ -65,4 +67,42 @@ def secret_in_arguments(arguments: dict[str, Any]) -> Decision | None:
         for kind, pattern in SECRETS.items():
             if pattern.search(text):
                 return Decision(Verdict.BLOCK, "LK01", f"a {kind} is in argument {path[:60]}")
+    return None
+
+
+CARD = re.compile(r"(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])")
+IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,30}\b")
+SSN = re.compile(r"(?<!\d)(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?!\d)")
+
+
+def luhn(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        n = int(ch)
+        if i % 2:
+            n = n * 2 - 9 if n > 4 else n * 2
+        total += n
+    return total % 10 == 0
+
+
+def iban_valid(text: str) -> bool:
+    raw = text.replace(" ", "")
+    moved = raw[4:] + raw[:4]
+    number = "".join(str(int(c, 36)) for c in moved)
+    return int(number) % 97 == 1
+
+
+def personal_data(arguments: dict[str, Any]) -> Decision | None:
+    """Card numbers (Luhn-checked), IBANs (mod-97-checked) and US social security numbers.
+    Checksums keep order numbers and phone numbers from counting."""
+    for path, text in bounded(arguments):
+        for match in CARD.finditer(text):
+            digits = re.sub(r"\D", "", match.group())
+            if 13 <= len(digits) <= 19 and luhn(digits):
+                return Decision(Verdict.ASK, "LK02", f"a card number is in argument {path[:60]}")
+        for match in IBAN.finditer(text):
+            if iban_valid(match.group()):
+                return Decision(Verdict.ASK, "LK02", f"a bank account is in argument {path[:60]}")
+        if SSN.search(text):
+            return Decision(Verdict.ASK, "LK02", f"an ID number is in argument {path[:60]}")
     return None
