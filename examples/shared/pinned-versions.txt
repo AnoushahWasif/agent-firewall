@@ -1,0 +1,4 @@
+# Demo data for the agent, not installed anywhere: old versions on purpose,
+# so the CVE lookup has known vulnerabilities to find.
+jinja2==2.10
+requests==2.31.0
