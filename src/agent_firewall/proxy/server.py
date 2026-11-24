@@ -119,7 +119,10 @@ def build_firewall(
     gate: ToolGate | None = None,
     policy: PolicyEngine | None = None,
     model: InjectionModel | None = None,
+    enforce: bool = True,
 ) -> Server[dict[str, Any]]:
+    """`enforce=False` lists and routes everything with no checks at all: the same plumbing as
+    the real firewall, used by the evaluation to measure what gets through without it."""
     gate = gate or ToolGate()
     policy = policy or allow_every_server(upstreams)
     names = [u.name for u in upstreams]
@@ -150,6 +153,10 @@ def build_firewall(
     async def list_tools(ctx, params) -> types.ListToolsResult:
         clients: dict[str, Client] = ctx.lifespan_context["clients"]
         listing = await live_listing(clients)
+        if not enforce:
+            return types.ListToolsResult(
+                tools=[t.model_copy(update={"name": public_name(s, t.name)}) for s, t in listing]
+            )
         decisions = gate.review(listing)
         return types.ListToolsResult(
             tools=[
@@ -166,6 +173,11 @@ def build_firewall(
         if parts is None or parts[0] not in clients:
             return _error(f"Unknown tool {params.name!r}")
         server, tool = parts
+        if not enforce:
+            try:
+                return await clients[server].call_tool(tool, params.arguments or {})
+            except Exception:
+                return _error(f"Tool server {server!r} failed to answer")
         # Checked again at call time, against the live definitions: a tool that changed after
         # it was listed (a rug pull) is caught here, not at the next listing.
         try:
