@@ -4,6 +4,11 @@
 policy = "policy.toml"
 pins = "pins.json"  # tool pins (rug-pull protection), next to this file
 
+# Optional: prompt-injection-guard's model for the result scanner (see the README).
+# [injection_model]
+# path = "../../prompt-injection-guard/models/portable"
+# manifest_sha256 = "..."
+
 [servers.files]
 command = "python"
 args = ["-m", "agent_firewall.tools", "files", "--root", "shared"]

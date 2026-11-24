@@ -23,7 +23,7 @@ Design and threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Where att
 |---|---|
 | Tool servers (MCP, official Python SDK) | `files` (read-only, one folder), `web` (public pages only: SSRF checks, pinned address, size and time caps), `cves` (OSV.dev), `email` (drafts to an outbox, never sends) |
 | Demo agent | Agent loop with a step limit, plus a scripted model for free, repeatable tests |
-| Firewall | MCP proxy that lists every server's tools as `server__tool` and refuses resources, prompts and server-to-agent requests. **Tool scanner:** hidden characters, orders aimed at the model, mentions of secrets, shadowing of other servers' tools. **Pinning:** a tool that changes after it was trusted (rug pull) is blocked, checked again at every call. **Policy:** deny by default; arguments checked against each tool's schema; patterns, allowed URL and email domains, lengths and choices per argument; rate limits; tools that need a person. **Leak check:** known secret formats in any call; card numbers, bank accounts and ID numbers, and text copied from earlier tool output, in calls that send data out |
+| Firewall | MCP proxy that lists every server's tools as `server__tool` and refuses resources, prompts and server-to-agent requests. **Tool scanner:** hidden characters, orders aimed at the model, mentions of secrets, shadowing of other servers' tools. **Pinning:** a tool that changes after it was trusted (rug pull) is blocked, checked again at every call. **Policy:** deny by default; arguments checked against each tool's schema; patterns, allowed URL and email domains, lengths and choices per argument; rate limits; tools that need a person. **Leak check:** known secret formats in any call; card numbers, bank accounts and ID numbers, and text copied from earlier tool output, in calls that send data out. **Result scanner:** tool results checked for planted instructions (prompt-injection-guard's model plus rules) and fenced as untrusted data, or withheld |
 
 ## Quick start
 
@@ -52,6 +52,18 @@ Any MCP agent (Claude Desktop, an IDE agent, or the demo agent here) gets one se
 ```
 
 The firewall starts the servers named in [examples/firewall.toml](examples/firewall.toml) itself, so the agent never learns their commands.
+
+### Add the injection model (optional)
+
+Without it, the result scanner uses rules only. The model comes from [prompt-injection-guard](https://github.com/AnoushahWasif/prompt-injection-guard): build its portable export there, then point the config at it and pin its manifest:
+
+```toml
+[injection_model]
+path = "../prompt-injection-guard/models/portable"
+manifest_sha256 = "<sha256 of that folder's manifest.json>"
+```
+
+A model whose files don't match the pin stops the firewall rather than loading.
 
 ## License
 
