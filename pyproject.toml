@@ -9,13 +9,16 @@ dependencies = [
     "httpx2>=2.16",
     "jsonschema>=4.20",
     "mcp>=2.3",
+    "numpy>=2.1",
     "pydantic>=2.9",
+    "safetensors>=0.4",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "ruff>=0.7",
+    "scikit-learn>=1.5",
 ]
 
 [build-system]
