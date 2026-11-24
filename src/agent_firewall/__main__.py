@@ -11,11 +11,13 @@ import anyio
 from mcp.server.stdio import stdio_server
 
 from agent_firewall import config
+from agent_firewall.checks.pins import PinFileError
 from agent_firewall.proxy.server import build_firewall
 
 
 async def serve(config_path: Path) -> None:
-    server = build_firewall(config.load(config_path))
+    setup = config.load(config_path)
+    server = build_firewall(setup.upstreams, setup.gate)
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
@@ -26,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         config.load(args.config)  # fail fast with a readable message, before stdio starts
-    except config.ConfigError as exc:
+    except (config.ConfigError, PinFileError) as exc:
         print(f"agent-firewall: {exc}", file=sys.stderr)
         return 2
     anyio.run(serve, args.config)

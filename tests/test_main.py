@@ -33,3 +33,10 @@ def test_a_bad_config_exits_with_a_message(tmp_path, capsys):
     (tmp_path / "bad.toml").write_text("servers = {}")
     assert main(["--config", str(tmp_path / "bad.toml")]) == 2
     assert "agent-firewall:" in capsys.readouterr().err
+
+
+def test_a_corrupt_pin_file_exits_with_a_message(tmp_path, capsys):
+    (tmp_path / "pins.json").write_text("not json")
+    (tmp_path / "f.toml").write_text('pins = "pins.json"\n[servers.files]\ncommand = "x"')
+    assert main(["--config", str(tmp_path / "f.toml")]) == 2
+    assert "pin file" in capsys.readouterr().err

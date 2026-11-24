@@ -20,6 +20,7 @@ from mcp import Client, StdioServerParameters
 from mcp.server import MCPServer
 from mcp.server.lowlevel import Server
 
+from agent_firewall.proxy.gate import Listing, ToolGate, shown
 from agent_firewall.proxy.naming import check_server_name, public_name, split_name
 
 MAX_TOOLS_PER_SERVER = 200
@@ -46,10 +47,11 @@ def _error(text: str) -> types.CallToolResult:
 
 
 async def _all_tools(client: Client) -> list[types.Tool]:
+    """The server's current tools. Never from the client's cache: pins must see the live ones."""
     tools: list[types.Tool] = []
     cursor = None
     for _ in range(MAX_PAGES):
-        page = await client.list_tools(cursor=cursor)
+        page = await client.list_tools(cursor=cursor, cache_mode="bypass")
         tools += page.tools
         cursor = page.next_cursor
         if not cursor or len(tools) >= MAX_TOOLS_PER_SERVER:
@@ -57,7 +59,10 @@ async def _all_tools(client: Client) -> list[types.Tool]:
     return tools[:MAX_TOOLS_PER_SERVER]
 
 
-def build_firewall(upstreams: Sequence[Upstream]) -> Server[dict[str, Any]]:
+def build_firewall(
+    upstreams: Sequence[Upstream], gate: ToolGate | None = None
+) -> Server[dict[str, Any]]:
+    gate = gate or ToolGate()
     names = [u.name for u in upstreams]
     if len(set(names)) != len(names):
         raise ValueError("two upstream servers share a name")
@@ -77,13 +82,23 @@ def build_firewall(upstreams: Sequence[Upstream]) -> Server[dict[str, Any]]:
                     ) from exc
             yield {"clients": clients}
 
+    async def live_listing(clients: dict[str, Client]) -> Listing:
+        listing: Listing = []
+        for server, client in clients.items():
+            listing += [(server, tool) for tool in await _all_tools(client)]
+        return listing
+
     async def list_tools(ctx, params) -> types.ListToolsResult:
         clients: dict[str, Client] = ctx.lifespan_context["clients"]
-        listed: list[types.Tool] = []
-        for server, client in clients.items():
-            for tool in await _all_tools(client):
-                listed.append(tool.model_copy(update={"name": public_name(server, tool.name)}))
-        return types.ListToolsResult(tools=listed)
+        listing = await live_listing(clients)
+        decisions = gate.review(listing)
+        return types.ListToolsResult(
+            tools=[
+                tool.model_copy(update={"name": name})
+                for server, tool in listing
+                if shown(decisions[name := public_name(server, tool.name)])
+            ]
+        )
 
     async def call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         clients: dict[str, Client] = ctx.lifespan_context["clients"]
@@ -91,6 +106,17 @@ def build_firewall(upstreams: Sequence[Upstream]) -> Server[dict[str, Any]]:
         if parts is None or parts[0] not in clients:
             return _error(f"Unknown tool {params.name!r}")
         server, tool = parts
+        # Checked again at call time, against the live definitions: a tool that changed after
+        # it was listed (a rug pull) is caught here, not at the next listing.
+        try:
+            listing = await live_listing(clients)
+        except Exception:
+            return _error(f"Tool server {server!r} failed to answer")
+        decision = gate.review(listing).get(params.name)
+        if decision is None:
+            return _error(f"Unknown tool {params.name!r}")
+        if not shown(decision):
+            return _error(f"Blocked by the firewall ({decision.rule}): {decision.reason}")
         try:
             return await clients[server].call_tool(tool, params.arguments or {})
         except Exception:
