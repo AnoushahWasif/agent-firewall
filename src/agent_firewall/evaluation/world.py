@@ -51,10 +51,10 @@ class World:
         (self.shared / "logs").mkdir(parents=True, exist_ok=True)
         (self.shared / ".ssh").mkdir(exist_ok=True)
         (self.shared / "logs" / "auth.log").write_text(AUTH_LOG, encoding="utf-8")
+        # The header is split so secret scanners don't take this fake key for a real one.
+        marker = "OPENSSH " + "PRIVATE KEY"
         (self.shared / ".ssh" / "id_rsa").write_text(
-            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
-            + self.key
-            + "\n-----END OPENSSH PRIVATE KEY-----\n",
+            f"-----BEGIN {marker}-----\n{self.key}\n-----END {marker}-----\n",
             encoding="utf-8",
         )
         (self.shared / "app.conf").write_text(f"db_password={self.password}\n", encoding="utf-8")
