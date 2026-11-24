@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Datasets, model weights and run output are rebuilt by scripts, not committed
+data/
+/models/
+/runs/
+/outbox/
+audit*.jsonl
+
+# Local env
+.env
+.DS_Store
+.vscode/
+.idea/
