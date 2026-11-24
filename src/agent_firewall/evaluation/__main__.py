@@ -27,7 +27,8 @@ def wilson(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
     p = hits / n
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return (max(0.0, centre - half), min(1.0, centre + half))
+    # Rounded so the exact edges come out exact (6/6 gives 1.0, not 0.9999999999999999).
+    return (round(max(0.0, centre - half), 10), round(min(1.0, centre + half), 10))
 
 
 def summarise(outcomes: list[Outcome]) -> dict:
