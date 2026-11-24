@@ -1,5 +1,6 @@
 """The firewall's config file: which tool servers sit behind it.
 
+    policy = "policy.toml"        # required: what the agent may use (see policy.py)
     pins = "pins.json"            # where tool pins are kept; leave out to keep them in memory
 
     [servers.files]
@@ -24,6 +25,7 @@ from pathlib import Path
 from mcp import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from agent_firewall import policy as policy_file
 from agent_firewall.checks.pins import PinStore
 from agent_firewall.proxy.gate import ToolGate
 from agent_firewall.proxy.naming import check_server_name
@@ -47,6 +49,7 @@ class ServerConfig(BaseModel):
 class FirewallConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    policy: str = Field(min_length=1, max_length=500)
     pins: str | None = Field(default=None, min_length=1, max_length=500)
     servers: dict[str, ServerConfig] = Field(min_length=1, max_length=MAX_SERVERS)
 
@@ -62,6 +65,7 @@ class FirewallConfig(BaseModel):
 class Setup:
     upstreams: list[Upstream]
     gate: ToolGate
+    policy: policy_file.PolicyEngine
 
 
 def load(path: Path) -> Setup:
@@ -89,4 +93,8 @@ def load(path: Path) -> Setup:
         for name, server in config.servers.items()
     ]
     pins = PinStore(folder / config.pins if config.pins else None)
-    return Setup(upstreams, ToolGate(pins))
+    try:
+        engine = policy_file.PolicyEngine(policy_file.load(folder / config.policy))
+    except policy_file.PolicyError as exc:
+        raise ConfigError(str(exc)) from exc
+    return Setup(upstreams, ToolGate(pins), engine)

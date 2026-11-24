@@ -32,7 +32,7 @@ An AI agent with real tools, plus the security layer that stops it being turned 
 | **Tool servers (MCP)** | Our own small servers: `files` (read-only, one folder), `web` (fetch a page), `cves` (OSV lookup), `email` (writes to an outbox folder, never really sends). Plus deliberately malicious servers for the attack tests |
 | **Firewall proxy** | Speaks MCP on both sides, so any MCP agent can use it, not just ours |
 | ↳ Tool scanner | On `tools/list`: flags hidden instructions in descriptions (imperatives to the model, invisible Unicode, mentions of other tools or of secrets) and pins each tool's definition by hash. A changed definition is blocked until it's approved again |
-| ↳ Policy engine | A YAML policy, deny by default. It sets which servers and tools are allowed, checks arguments against schemas, and keeps allow-lists for paths and URL domains, plus rate limits per tool |
+| ↳ Policy engine | A TOML policy, deny by default. It sets which servers and tools are allowed, checks arguments against schemas, and keeps allow-lists for paths and URL domains, plus rate limits per tool |
 | ↳ Leak check | Outgoing arguments are checked for secrets (keys, tokens, private keys), for personal data, and for content copied from earlier tool results that's heading to a tool that sends data out (web, email) |
 | ↳ Result scanner | Tool results are scored by the prompt-injection-guard model. Suspicious text is fenced and labelled as untrusted data, or the result is withheld (policy decides) |
 | ↳ Guard LLM | Our fine-tuned small model (see below). It judges what the rules can't settle, such as "is this tool result trying to give the agent orders?". Only borderline cases go to it, so it doesn't slow every call |
@@ -122,13 +122,25 @@ The scanner reads every text in a definition that reaches the model: the name an
 | TS05 | A description over 4,000 characters | ask |
 | PIN01 | The definition changed since it was first seen and pinned (rug pull) | block |
 
+### Policy rules (day 5)
+
+The policy is a TOML file the config must name. Tools are named exactly (`files__read_file`) or by server (`cves__*`), and an exact entry beats the server's. A tool the policy doesn't name is hidden from the agent's listing and refused if called anyway. Writing a rule for one of a tool's arguments names the tool too, because TOML creates the parent table.
+
+| Rule | Checks | Verdict |
+|---|---|---|
+| POL01 | The policy names the tool | block |
+| POL02 | Arguments fit the tool's own input schema (JSON Schema 2020-12) and are under 64 KB. A schema that can't be used blocks, and the reason names the field, never the value | block |
+| POL03 | Per-argument rules: `pattern` (whole value), `domains` (URL host or email domain, subdomains included, so `nvd.nist.gov.evil.example` doesn't count), `max_length` (for a list, the number of items), `one_of`. Lists are checked item by item | block |
+| POL04 | Calls per tool within a sliding window. Only calls that go ahead count | block |
+| POL05 | `ask = true`: a person approves every call, after every other check has passed | ask |
+
 ## Repository layout (planned)
 
 ```
 src/agent_firewall/
     proxy/        MCP proxy: client side, server side, routing
     checks/       tool scanner, policy, leak check, result scanner, guard LLM
-    policy/       YAML loading and schema
+    policy.py     TOML loading, schema and the checks
     audit.py      hash-chained JSON lines
     agent/        demo agent loop, model adapters (scripted fake, Ollama)
     tools/        our MCP tool servers (files, web, cves, email outbox)
@@ -207,6 +219,9 @@ Agents are random, so each case runs several times, with intervals.
 | 19 | Only a tool that passes the scan gets pinned; trust on first use otherwise (day 4) | A poisoned tool is never trusted on first sight. If a person later approves a cleaned-up version, it's pinned then |
 | 20 | Every call re-checks the live definitions (the client's listing cache bypassed) before it runs (day 4) | A rug pull right after a tool was approved is caught at the moment it's used, not at the next listing. It costs one `tools/list` per call, measured on day 8 |
 | 21 | `ask` withholds the tool until approvals exist (day 14) | Until a person can answer, "ask" has to mean "no" |
+| 22 | The policy is TOML, not YAML (changed on day 5) | YAML aliases and merge keys let a few hundred bytes expand exponentially (found the hard way in ThreatLens). TOML has neither, and Python reads it without a dependency |
+| 23 | The config must name a policy file. Without a policy, only library use and tests get "allow every configured server" (day 5) | A firewall that starts open by default because a line was forgotten fails quietly, the worst way |
+| 24 | Policy checks run after the tool scanner and pins, on the live definition's schema (day 5) | Arguments are checked against the definition that was actually scanned and pinned, not one from an earlier listing |
 
 ## Threat model of the firewall itself (STRIDE)
 
@@ -248,7 +263,7 @@ Nothing here should cost money to build, test or run:
 | 2 | Tool servers (`files`, `web`, `cves`, `email` outbox) + the demo agent with a scripted fake LLM; check licences of public attack sets |
 | 3 | Firewall as a pass-through MCP proxy, with recorded-traffic tests |
 | 4 | Tool scanner: hidden instructions in descriptions, hash pinning, duplicate names |
-| 5 | Policy engine: YAML, deny by default, argument schemas, path and domain allow-lists, rate limits |
+| 5 | Policy engine: TOML, deny by default, argument schemas, path and domain allow-lists, rate limits |
 | 6 | Leak check: secrets, personal data, copied tool output heading out |
 | 7 | Result scanner using the prompt-injection-guard model; fencing and labelling |
 | 8 | Attack and normal-task sets; evaluation harness; first numbers (development half) |

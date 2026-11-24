@@ -20,8 +20,10 @@ from mcp import Client, StdioServerParameters
 from mcp.server import MCPServer
 from mcp.server.lowlevel import Server
 
+from agent_firewall.checks.verdict import Verdict
+from agent_firewall.policy import Policy, PolicyEngine, ToolPolicy
 from agent_firewall.proxy.gate import Listing, ToolGate, shown
-from agent_firewall.proxy.naming import check_server_name, public_name, split_name
+from agent_firewall.proxy.naming import SEP, check_server_name, public_name, split_name
 
 MAX_TOOLS_PER_SERVER = 200
 MAX_PAGES = 10
@@ -59,10 +61,19 @@ async def _all_tools(client: Client) -> list[types.Tool]:
     return tools[:MAX_TOOLS_PER_SERVER]
 
 
+def allow_every_server(upstreams: Sequence[Upstream]) -> PolicyEngine:
+    """A policy naming every server's tools, for tests and library use. The config file never
+    falls back to this: it must name a policy file."""
+    return PolicyEngine(Policy(tools={f"{u.name}{SEP}*": ToolPolicy() for u in upstreams}))
+
+
 def build_firewall(
-    upstreams: Sequence[Upstream], gate: ToolGate | None = None
+    upstreams: Sequence[Upstream],
+    gate: ToolGate | None = None,
+    policy: PolicyEngine | None = None,
 ) -> Server[dict[str, Any]]:
     gate = gate or ToolGate()
+    policy = policy or allow_every_server(upstreams)
     names = [u.name for u in upstreams]
     if len(set(names)) != len(names):
         raise ValueError("two upstream servers share a name")
@@ -97,6 +108,7 @@ def build_firewall(
                 tool.model_copy(update={"name": name})
                 for server, tool in listing
                 if shown(decisions[name := public_name(server, tool.name)])
+                and policy.policy.allows(name)
             ]
         )
 
@@ -117,6 +129,13 @@ def build_firewall(
             return _error(f"Unknown tool {params.name!r}")
         if not shown(decision):
             return _error(f"Blocked by the firewall ({decision.rule}): {decision.reason}")
+        live = next(t for srv, t in listing if srv == server and t.name == tool)
+        verdict = policy.review_call(params.name, params.arguments or {}, live.input_schema)
+        if verdict is not None and verdict.verdict is Verdict.ASK:
+            # Approvals arrive on day 14; until a person can answer, "ask" means no.
+            return _error(f"Needs a person's approval ({verdict.rule}): {verdict.reason}")
+        if verdict is not None and verdict.verdict is Verdict.BLOCK:
+            return _error(f"Blocked by the firewall ({verdict.rule}): {verdict.reason}")
         try:
             return await clients[server].call_tool(tool, params.arguments or {})
         except Exception:
