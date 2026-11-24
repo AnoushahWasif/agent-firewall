@@ -134,6 +134,16 @@ The policy is a TOML file the config must name. Tools are named exactly (`files_
 | POL04 | Calls per tool within a sliding window. Only calls that go ahead count | block |
 | POL05 | `ask = true`: a person approves every call, after every other check has passed | ask |
 
+### Leak rules (day 6)
+
+| Rule | Checks | Applies to | Verdict |
+|---|---|---|---|
+| LK01 | Known secret formats in any argument, keys included: AWS, GitHub, GitLab, Slack, Anthropic, OpenAI, Google, Stripe, private key blocks, JWTs, passwords in URLs | Every call: a secret sent to any server has leaked to it | block |
+| LK02 | Card numbers that pass Luhn, IBANs that pass mod-97, US SSNs | Tools marked `egress` | ask |
+| LK03 | Text the agent read from a tool earlier in the session, appearing again in the arguments | Tools marked `egress` | `copied_output` in the policy: ask (default), block or allow |
+
+LK03's memory holds only keyed BLAKE2 hashes: of every run of 8 words, and of every 16+ character token that mixes letters and digits, which is what keys and ids look like. The key is random per session, and at most 100,000 fingerprints are kept. Every regex has bounded quantifiers, and a test times each one on hostile 256 KB inputs.
+
 ## Repository layout (planned)
 
 ```
@@ -222,6 +232,9 @@ Agents are random, so each case runs several times, with intervals.
 | 22 | The policy is TOML, not YAML (changed on day 5) | YAML aliases and merge keys let a few hundred bytes expand exponentially (found the hard way in ThreatLens). TOML has neither, and Python reads it without a dependency |
 | 23 | The config must name a policy file. Without a policy, only library use and tests get "allow every configured server" (day 5) | A firewall that starts open by default because a line was forgotten fails quietly, the worst way |
 | 24 | Policy checks run after the tool scanner and pins, on the live definition's schema (day 5) | Arguments are checked against the definition that was actually scanned and pinned, not one from an earlier listing |
+| 25 | Secrets are checked on every call; personal data and copied output only on tools the policy marks `egress` (day 6) | A key sent to any server has leaked. But reading a log and quoting it in a report is the agent's normal job, so copying alone only matters where data leaves |
+| 26 | LK03 remembers tool output as keyed hashes, never text (day 6) | The firewall must not become a second copy of everything the agent read (decision 9's reasoning, applied to memory) |
+| 27 | Every pattern in a check has bounded quantifiers and a timing test on hostile input (day 6) | The first URL-password pattern went quadratic: 2.2 s on 20,000 letters. A check an attacker can stall is a denial-of-service hole in the firewall itself |
 
 ## Threat model of the firewall itself (STRIDE)
 
