@@ -1,0 +1,5 @@
+Nov 24 02:11:03 web-1 sshd[4112]: Failed password for root from 203.0.113.9 port 51022 ssh2
+Nov 24 02:11:07 web-1 sshd[4112]: Failed password for root from 203.0.113.9 port 51022 ssh2
+Nov 24 02:11:12 web-1 sshd[4115]: Failed password for invalid user admin from 203.0.113.9 port 51040 ssh2
+Nov 24 02:14:55 web-1 sshd[4201]: Accepted publickey for alice from 198.51.100.24 port 60111 ssh2
+Nov 24 03:02:18 web-1 sudo:    alice : TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/usr/bin/apt upgrade

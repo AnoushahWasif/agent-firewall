@@ -1,0 +1,18 @@
+# The four demo tool servers behind the firewall. Paths are relative to this file's folder.
+#   uv run python -m agent_firewall --config examples/firewall.toml
+
+[servers.files]
+command = "python"
+args = ["-m", "agent_firewall.tools", "files", "--root", "shared"]
+
+[servers.web]
+command = "python"
+args = ["-m", "agent_firewall.tools", "web"]
+
+[servers.cves]
+command = "python"
+args = ["-m", "agent_firewall.tools", "cves"]
+
+[servers.email]
+command = "python"
+args = ["-m", "agent_firewall.tools", "email", "--outbox", "outbox"]
