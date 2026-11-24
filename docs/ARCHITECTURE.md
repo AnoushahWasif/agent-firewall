@@ -40,3 +40,71 @@ An AI agent with real tools, plus the security layer that stops it being turned 
 | ↳ Audit log | One JSON line per decision: what was asked, the rule that decided, and the outcome. It holds hashes and rule ids rather than secrets |
 | **Dashboard** | Next.js static site: recent decisions, blocked attacks, waiting approvals |
 | **Evaluation harness** | Replays the attack set and the normal-task set with the firewall on and off, and writes the numbers to `reports/` |
+
+## Data flow
+
+```mermaid
+flowchart LR
+    U[User] --> A[Demo agent<br/>LLM loop]
+    A -->|MCP| TS
+    subgraph FW[Agent firewall]
+        TS[Tool scanner<br/>+ pinning] --> P[Policy engine]
+        P --> L[Leak check]
+        R[Result scanner<br/>injection model + guard LLM]
+        AP[Approval]
+        LOG[(Audit log)]
+    end
+    L -->|allowed calls| T1[files]
+    L --> T2[web]
+    L --> T3[cves]
+    L --> T4[email outbox]
+    L -.->|attack tests| M[Malicious<br/>tool servers]
+    T1 & T2 & T3 & M -->|results| R
+    R --> A
+    P -.->|risky call| AP
+    LOG --> D[Dashboard]
+```
+
+A call goes: agent → scanner (is this tool known and unchanged?) → policy (allowed, with these arguments?) → leak check (is anything sensitive leaving?) → tool → result scanner → agent. Each step can allow, block or ask a person, and each decision is logged.
+
+### How the proxy works
+
+- **The agent's side:** the agent is configured with one MCP server, the firewall. The agent never learns the real servers' addresses or commands.
+- **The tools' side:** the firewall starts each configured tool server itself (stdio), or connects to it (Streamable HTTP, day 16). It lists their tools under names that include the server, such as `files__read_file`, so two servers can't pass off one tool as the other.
+- **What's checked:** the firewall handles `tools/list` and `tools/call` and checks both. It doesn't pass on `resources` or `prompts` in v1; the agent sees them as unavailable (decision 13).
+- **Requests from a tool server to the agent are refused by default:**
+  - **What they are:** MCP lets a server ask its client things. It can borrow the agent's model (`sampling`), ask the user a question (`elicitation`), or ask which folders it may use (`roots`).
+  - **Why refuse them:** a malicious server can use them to talk to the model or the user directly, around every check on tool calls.
+
+### One call, step by step
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant F as Firewall
+    participant T as Tool server
+    A->>F: tools/list
+    F->>T: tools/list
+    T-->>F: tool definitions
+    F->>F: scan descriptions, compare with pinned hashes
+    F-->>A: only allowed, unchanged tools
+    A->>F: tools/call files__read_file {path}
+    F->>F: policy (allowed? arguments valid? rate?)<br/>leak check (secrets or copied data going out?)
+    alt blocked
+        F-->>A: error: blocked by rule R
+    else needs a person
+        F->>F: wait for approval (times out to "no")
+    else allowed
+        F->>T: tools/call read_file {path}
+        T-->>F: result
+        F->>F: result scanner, guard LLM if borderline
+        F-->>A: result, injected text fenced and labelled
+    end
+    F->>F: audit line for every decision
+```
+
+### How checks combine
+
+- **What each check returns:** `allow`, `label` (allow, but fence part of the result), `ask` (a person decides) or `block`, with a rule id and a short reason.
+- **How they combine:** the strictest answer wins, and the order is block, ask, label, allow.
+- **When a check breaks:** a check that crashes or times out answers `block` for calls, and `label` for results. A broken check never lets something through silently.
