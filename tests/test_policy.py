@@ -231,3 +231,16 @@ def test_ask_tools_go_to_a_person_after_every_other_check(tmp_path):
 def test_the_engine_blocks_what_the_policy_does_not_name(tmp_path):
     e = engine(tmp_path, '[tools."files__read_file"]\n')
     assert e.review_call("files__write_file", {}, SCHEMA).rule == "POL01"
+
+
+def test_egress_settings(tmp_path):
+    policy = policy_from(
+        tmp_path,
+        '[tools."web__fetch_page"]\negress = true\ncopied_output = "block"\n[tools."cves__*"]\n',
+    )
+    web = policy.rule_for("web__fetch_page")
+    assert web.egress and web.copied_output == "block"
+    cves = policy.rule_for("cves__lookup_package")
+    assert not cves.egress and cves.copied_output == "ask"
+    with pytest.raises(PolicyError):
+        policy_from(tmp_path, '[tools."web__fetch_page"]\ncopied_output = "maybe"\n')

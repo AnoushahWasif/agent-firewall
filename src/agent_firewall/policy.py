@@ -32,7 +32,7 @@ import tomllib
 from collections import defaultdict, deque
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator
@@ -96,6 +96,10 @@ class ToolPolicy(BaseModel):
 
     ask: bool = False
     rate: Rate | None = None
+    # Sends data outside (a web request, an email): personal data and earlier tool output in
+    # its arguments are checked (LK02, LK03).
+    egress: bool = False
+    copied_output: Literal["ask", "block", "allow"] = "ask"
     args: dict[str, ArgRule] = Field(default_factory=dict, max_length=50)
 
 

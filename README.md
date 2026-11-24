@@ -23,7 +23,7 @@ Design and threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Where att
 |---|---|
 | Tool servers (MCP, official Python SDK) | `files` (read-only, one folder), `web` (public pages only: SSRF checks, pinned address, size and time caps), `cves` (OSV.dev), `email` (drafts to an outbox, never sends) |
 | Demo agent | Agent loop with a step limit, plus a scripted model for free, repeatable tests |
-| Firewall | MCP proxy that lists every server's tools as `server__tool` and refuses resources, prompts and server-to-agent requests. **Tool scanner:** hidden characters, orders aimed at the model, mentions of secrets, shadowing of other servers' tools. **Pinning:** a tool that changes after it was trusted (rug pull) is blocked, checked again at every call. **Policy:** deny by default; arguments checked against each tool's schema; patterns, allowed URL and email domains, lengths and choices per argument; rate limits; tools that need a person |
+| Firewall | MCP proxy that lists every server's tools as `server__tool` and refuses resources, prompts and server-to-agent requests. **Tool scanner:** hidden characters, orders aimed at the model, mentions of secrets, shadowing of other servers' tools. **Pinning:** a tool that changes after it was trusted (rug pull) is blocked, checked again at every call. **Policy:** deny by default; arguments checked against each tool's schema; patterns, allowed URL and email domains, lengths and choices per argument; rate limits; tools that need a person. **Leak check:** known secret formats in any call; card numbers, bank accounts and ID numbers, and text copied from earlier tool output, in calls that send data out |
 
 ## Quick start
 

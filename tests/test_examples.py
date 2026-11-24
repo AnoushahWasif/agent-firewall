@@ -23,3 +23,11 @@ def test_the_example_policy_means_what_it_says():
     assert engine.review_call("web__fetch_page", leak, schema).rule == "POL03"
     report = {"to": ["soc@example.com"], "subject": "s", "body": "b"}
     assert engine.review_call("email__send_report", report, schema).rule == "POL05"
+
+
+def test_the_example_marks_web_and_email_as_egress():
+    rules = config.load(Path("examples/firewall.toml")).policy.policy
+    assert rules.rule_for("web__fetch_page").egress
+    assert rules.rule_for("web__fetch_page").copied_output == "block"
+    assert rules.rule_for("email__send_report").egress
+    assert not rules.rule_for("files__read_file").egress
