@@ -17,7 +17,7 @@ from agent_firewall.proxy.server import build_firewall
 
 async def serve(config_path: Path) -> None:
     setup = config.load(config_path)
-    server = build_firewall(setup.upstreams, setup.gate)
+    server = build_firewall(setup.upstreams, setup.gate, setup.policy)
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 

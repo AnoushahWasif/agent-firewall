@@ -5,8 +5,11 @@ import pytest
 from agent_firewall.config import ConfigError, load
 
 
-def write(tmp_path, text):
+def write(tmp_path, text, policy=True):
     path = tmp_path / "firewall.toml"
+    if policy:
+        (tmp_path / "policy.toml").write_text('[tools."files__*"]\n')
+        text = 'policy = "policy.toml"\n' + text
     path.write_text(text)
     return path
 
@@ -54,6 +57,18 @@ def test_bad_configs_say_what_is_wrong(tmp_path, text, message):
 def test_a_missing_file_is_a_config_error(tmp_path):
     with pytest.raises(ConfigError, match="can't read"):
         load(tmp_path / "nope.toml")
+
+
+def test_a_policy_file_is_required(tmp_path):
+    with pytest.raises(ConfigError, match="policy"):
+        load(write(tmp_path, '[servers.files]\ncommand = "x"', policy=False))
+
+
+def test_a_bad_policy_file_is_a_config_error(tmp_path):
+    path = write(tmp_path, '[servers.files]\ncommand = "x"')
+    (tmp_path / "policy.toml").write_text('[tools."nope"]\n')
+    with pytest.raises(ConfigError, match="neither"):
+        load(path)
 
 
 def test_at_most_twenty_servers(tmp_path):
