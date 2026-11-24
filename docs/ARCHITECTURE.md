@@ -109,6 +109,19 @@ sequenceDiagram
 - **How they combine:** the strictest answer wins, and the order is block, ask, label, allow.
 - **When a check breaks:** a check that crashes or times out answers `block` for calls, and `label` for results. A broken check never lets something through silently.
 
+### Tool scanner rules (day 4)
+
+The scanner reads every text in a definition that reaches the model: the name and description, plus every description, title, default, example, enum value and property name inside the input schema.
+
+| Rule | Looks for | Verdict |
+|---|---|---|
+| TS01 | Invisible or control characters (Unicode tags, zero-width, bidi overrides, escapes, private use) | block |
+| TS02 | Orders aimed at the model: "ignore previous instructions", "don't tell the user", fake `<IMPORTANT>` or `<system>` tags, "before using this tool…", "you must also send…". Checked after NFKC folding, so full-width letters don't hide them | block |
+| TS03 | Mentions of keys and credentials: `~/.ssh`, `id_rsa`, `.aws`, `.env`, `mcp.json`, API keys, tokens, passwords | ask |
+| TS04 | The description names another server's tool, which is how shadowing works. Only distinctive names count (with `_`, or 8+ characters) | ask |
+| TS05 | A description over 4,000 characters | ask |
+| PIN01 | The definition changed since it was first seen and pinned (rug pull) | block |
+
 ## Repository layout (planned)
 
 ```
@@ -191,6 +204,9 @@ Agents are random, so each case runs several times, with intervals.
 | 16 | Tool names are shown to the agent as `server__tool` | Two servers can't offer the "same" tool, and every decision names the real server |
 | 17 | Tool servers start with a minimal environment (PATH, TEMP and the like, from the MCP SDK) plus only the variables the config lists (day 3) | API keys and tokens in the firewall's own environment never reach a tool server, even a malicious one |
 | 18 | A tool server that won't start stops the firewall with `UpstreamUnavailable`, instead of running without it (day 3) | A firewall that silently drops a server leaves the agent working with tools nobody checked were there. Failing loudly is easier to notice and fix |
+| 19 | Only a tool that passes the scan gets pinned; trust on first use otherwise (day 4) | A poisoned tool is never trusted on first sight. If a person later approves a cleaned-up version, it's pinned then |
+| 20 | Every call re-checks the live definitions (the client's listing cache bypassed) before it runs (day 4) | A rug pull right after a tool was approved is caught at the moment it's used, not at the next listing. It costs one `tools/list` per call, measured on day 8 |
+| 21 | `ask` withholds the tool until approvals exist (day 14) | Until a person can answer, "ask" has to mean "no" |
 
 ## Threat model of the firewall itself (STRIDE)
 
